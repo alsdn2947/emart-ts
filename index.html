@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>이마트 On-Ad 장애접수 관리 (실시간 공유)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  :root{
+    --ink:#1f2124;--paper:#f6f5f2;--card:#ffffff;--line:#e3e1db;
+    --em-yellow:#ffcf33;--em-dark:#26221a;
+    --ok:#2e8b57;--warn:#d97706;--bad:#c9403a;--muted:#8a877f;
+    --mono:"SF Mono","Consolas",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Pretendard Variable",Pretendard,-apple-system,"Malgun Gothic",sans-serif;
+    background:var(--paper);color:var(--ink);font-size:14px;line-height:1.5}
+
+  header{background:var(--em-dark);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  header .logo{width:34px;height:34px;border-radius:8px;background:var(--em-yellow);color:var(--em-dark);
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px}
+  header h1{font-size:17px;font-weight:700;letter-spacing:-.2px}
+  header .sub{font-size:12px;color:#b9b3a6}
+  header .right{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  #syncBadge{font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;background:#4a453a;color:#cfc9ba}
+  #syncBadge.on{background:var(--em-yellow);color:var(--em-dark)}
+  #syncBadge.err{background:var(--bad);color:#fff}
+
+  nav{background:#fff;border-bottom:1px solid var(--line);display:flex;padding:0 22px;overflow-x:auto}
+  nav button{background:none;border:none;padding:12px 16px;font-size:14px;font-weight:600;color:var(--muted);
+    cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap;font-family:inherit}
+  nav button.active{color:var(--ink);border-bottom-color:var(--em-yellow)}
+  nav button:focus-visible{outline:2px solid var(--em-dark);outline-offset:-2px}
+
+  main{max-width:1180px;margin:0 auto;padding:20px 22px 60px}
+  .tab{display:none}
+  .tab.active{display:block}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  .card h2{font-size:15px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .card h2::before{content:"";width:8px;height:8px;background:var(--em-yellow);border-radius:2px;display:inline-block}
+  .grid{display:grid;gap:12px}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:860px){.g4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.g4,.g2{grid-template-columns:1fr}}
+
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .stat .k{font-size:12px;color:var(--muted);font-weight:600}
+  .stat .v{font-size:26px;font-weight:800;letter-spacing:-.5px;margin-top:4px}
+  .stat .v small{font-size:13px;font-weight:600;color:var(--muted)}
+  .stat.hl{background:var(--em-dark);border-color:var(--em-dark);color:#fff}
+  .stat.hl .k{color:#cfc9ba}
+  .stat.hl .v{color:var(--em-yellow)}
+
+  label{display:block;font-size:12px;font-weight:600;color:#55524a;margin-bottom:4px}
+  input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;
+    font-size:14px;font-family:inherit;background:#fff;color:var(--ink)}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--em-yellow);border-color:var(--em-dark)}
+  textarea{resize:vertical;min-height:60px}
+
+  .btn{padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);
+    font-size:13px;font-weight:600;cursor:pointer;font-family:inherit}
+  .btn:hover{background:#f1efe9}
+  .btn.primary{background:var(--em-yellow);border-color:var(--em-yellow);color:var(--em-dark)}
+  .btn.primary:hover{background:#f5c31f}
+  .btn.dark{background:var(--em-dark);border-color:var(--em-dark);color:#fff}
+  .btn.dark:hover{background:#3a352a}
+  .btn.sm{padding:4px 9px;font-size:12px}
+  .btn.danger{color:var(--bad);border-color:#eccfcd}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{background:#faf9f6;border-bottom:2px solid var(--line);padding:9px 8px;text-align:left;
+    font-size:12px;color:#55524a;white-space:nowrap;position:sticky;top:0}
+  td{border-bottom:1px solid var(--line);padding:8px;vertical-align:top}
+  tr:hover td{background:#fbfaf6}
+  .num{font-family:var(--mono);font-size:12px}
+  .table-wrap{overflow-x:auto;max-height:560px;overflow-y:auto;border:1px solid var(--line);border-radius:10px}
+
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700}
+  .badge.접수{background:#fdeeee;color:var(--bad)}
+  .badge.처리중{background:#fdf3e3;color:var(--warn)}
+  .badge.완료{background:#e8f4ec;color:var(--ok)}
+  .badge.dup{background:var(--em-yellow);color:var(--em-dark)}
+
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+  .toolbar input[type=search]{max-width:240px}
+  .toolbar select{max-width:130px}
+  .toolbar .spacer{flex:1}
+
+  .gauge-wrap{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+  .gauge{position:relative;width:150px;height:150px;flex-shrink:0}
+  .gauge svg{transform:rotate(-90deg)}
+  .gauge .txt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .gauge .txt b{font-size:24px;letter-spacing:-.5px}
+  .gauge .txt span{font-size:11px;color:var(--muted)}
+
+  .empty{text-align:center;padding:40px 10px;color:var(--muted);font-size:13px}
+  dialog{border:none;border-radius:14px;padding:0;max-width:640px;width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+  dialog::backdrop{background:rgba(20,18,12,.45)}
+  .dlg-head{background:var(--em-dark);color:#fff;padding:14px 18px;font-weight:700;font-size:15px;
+    display:flex;justify-content:space-between;align-items:center}
+  .dlg-body{padding:18px}
+  .dlg-body pre{background:#faf9f6;border:1px solid var(--line);border-radius:8px;padding:12px;
+    font-size:12.5px;white-space:pre-wrap;font-family:inherit;max-height:340px;overflow:auto}
+  .dlg-foot{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+
+  #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--em-dark);color:#fff;
+    padding:10px 20px;border-radius:30px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99}
+  #toast.show{opacity:1}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .notice{background:#fdf3e3;border:1px solid #f0dcb0;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:16px}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">e</div>
+  <div>
+    <h1>이마트 On-Ad 장애접수 관리</h1>
+    <div class="sub">실시간 공유 버전 · 팀원 모두 동일한 리스트를 봅니다</div>
+  </div>
+  <div class="right">
+    <span id="syncBadge">● 로컬 모드</span>
+    <button class="btn sm" onclick="exportJSON()">JSON 백업</button>
+    <button class="btn sm" onclick="document.getElementById('importFile').click()">JSON 가져오기</button>
+    <button class="btn sm" onclick="exportCSV()">Excel(CSV) 다운로드</button>
+    <input type="file" id="importFile" accept=".json" hidden onchange="importJSON(event)">
+  </div>
+</header>
+
+<nav>
+  <button class="active" data-tab="dash" onclick="showTab('dash')">대시보드</button>
+  <button data-tab="reg" onclick="showTab('reg')">장애 접수 등록</button>
+  <button data-tab="list" onclick="showTab('list')">접수 리스트</button>
+  <button data-tab="dup" onclick="showTab('dup')">중복·재발 분석</button>
+  <button data-tab="set" onclick="showTab('set')">기준 설정</button>
+</nav>
+
+<main>
+
+<div class="notice" id="localNotice" style="display:none">
+  ⚠️ 현재 <b>로컬 모드</b>로 동작 중입니다 (데이터가 이 브라우저에만 저장됨).
+  실시간 팀 공유를 사용하려면 파일 하단 안내에 따라 <b>Firebase 설정값</b>을 입력한 뒤 다시 열어주세요.
+</div>
+
+<!-- ─── 대시보드 ─── -->
+<section class="tab active" id="tab-dash">
+  <div class="grid g4" style="margin-bottom:16px">
+    <div class="stat hl"><div class="k">전체 접수 건수</div><div class="v" id="stTotal">0<small> 건</small></div></div>
+    <div class="stat"><div class="k">이번 달 접수</div><div class="v" id="stMonth">0<small> 건</small></div></div>
+    <div class="stat"><div class="k">미완료 (접수+처리중)</div><div class="v" id="stOpen">0<small> 건</small></div></div>
+    <div class="stat"><div class="k">중복접수 지점</div><div class="v" id="stDupStore">0<small> 개점</small></div></div>
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h2>장애발생율 (전체 개통 대비)</h2>
+      <div class="gauge-wrap">
+        <div class="gauge">
+          <svg width="150" height="150" viewBox="0 0 150 150">
+            <circle cx="75" cy="75" r="64" fill="none" stroke="#eeece6" stroke-width="14"/>
+            <circle id="gaugeArc" cx="75" cy="75" r="64" fill="none" stroke="var(--em-yellow)" stroke-width="14"
+              stroke-linecap="round" stroke-dasharray="402" stroke-dashoffset="402"/>
+          </svg>
+          <div class="txt"><b id="gaugeVal">0%</b><span>장애발생율</span></div>
+        </div>
+        <div style="flex:1;min-width:180px">
+          <table style="font-size:13px">
+            <tr><td style="border:none;padding:4px 0;color:var(--muted)">전체 개통 대수 (기준)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dTotalDevices">-</td></tr>
+            <tr><td style="border:none;padding:4px 0;color:var(--muted)">장애 발생 대수 (시리얼 기준)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dFaultDevices">-</td></tr>
+            <tr><td style="border:none;padding:4px 0;color:var(--muted)">전체 운영 지점 수 (기준)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dTotalStores">-</td></tr>
+            <tr><td style="border:none;padding:4px 0;color:var(--muted)">장애 발생 지점 수</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dFaultStores">-</td></tr>
+            <tr><td style="border:none;padding:4px 0;color:var(--muted)">지점 기준 발생율</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dStoreRate">-</td></tr>
+          </table>
+          <div class="hint">기준값은 [기준 설정] 탭에서 변경할 수 있습니다. (팀 전체에 공유 적용)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>매체별 접수 현황</h2>
+      <div id="mediaBars"><div class="empty">등록된 접수 건이 없습니다.</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>중복 접수 상위 지점 (2회 이상)</h2>
+    <div id="dashDup"><div class="empty">중복 접수 지점이 없습니다.</div></div>
+  </div>
+</section>
+
+<!-- ─── 접수 등록 ─── -->
+<section class="tab" id="tab-reg">
+  <div class="card">
+    <h2>신규 장애 접수 <span id="editingLabel" style="color:var(--warn);font-size:12px"></span></h2>
+    <div class="grid g4" style="margin-bottom:12px">
+      <div><label>접수일자 *</label><input type="date" id="fDate"></div>
+      <div><label>지점명 *</label><input id="fStore" placeholder="예: 이마트 미아점" list="storeList"><datalist id="storeList"></datalist></div>
+      <div><label>서비스번호</label><input id="fSvc" placeholder="예: 1523xxxxxxx"></div>
+      <div><label>시리얼넘버</label><input id="fSerial" placeholder="장비 S/N"></div>
+    </div>
+    <div class="grid g4" style="margin-bottom:12px">
+      <div><label>매체 *</label>
+        <select id="fMedia">
+          <option>사이니지</option><option>비디오월</option><option>키오스크</option>
+          <option>셋톱박스</option><option>LTE회선</option><option>기타</option>
+        </select>
+      </div>
+      <div><label>상세위치</label><input id="fLoc" placeholder="예: 1층 신선매장 입구"></div>
+      <div><label>처리상태</label>
+        <select id="fStatus"><option>접수</option><option>처리중</option><option>완료</option></select>
+      </div>
+      <div><label>접수경로</label>
+        <select id="fChannel"><option>메일</option><option>카톡</option><option>유선</option><option>기타</option></select>
+      </div>
+    </div>
+    <div style="margin-bottom:14px"><label>증상 *</label>
+      <textarea id="fSymptom" placeholder="예: 화면 블랙아웃, 전원 재부팅 후에도 미표출"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn primary" onclick="saveItem()">저장</button>
+      <button class="btn" onclick="resetForm()">초기화</button>
+      <span style="flex:1"></span>
+      <button class="btn dark" onclick="genMail()">📧 접수요청 메일 본문 생성</button>
+      <button class="btn dark" onclick="genKakao()">💬 카톡 간단소통 메시지 생성</button>
+    </div>
+    <div class="hint">* 저장 즉시 팀원 모두의 화면에 실시간 반영됩니다. 메일로 정식 접수 후 카톡 간단소통 메시지를 함께 활용하세요.</div>
+  </div>
+</section>
+
+<!-- ─── 접수 리스트 ─── -->
+<section class="tab" id="tab-list">
+  <div class="card">
+    <h2>장애접수 리스트</h2>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="지점명·시리얼·증상 검색" oninput="renderList()">
+      <select id="fltStatus" onchange="renderList()">
+        <option value="">상태 전체</option><option>접수</option><option>처리중</option><option>완료</option>
+      </select>
+      <select id="fltMedia" onchange="renderList()">
+        <option value="">매체 전체</option><option>사이니지</option><option>비디오월</option>
+        <option>키오스크</option><option>셋톱박스</option><option>LTE회선</option><option>기타</option>
+      </select>
+      <span class="spacer"></span>
+      <span class="hint" id="listCount"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>NO</th><th>접수일자</th><th>지점명</th><th>서비스번호</th><th>시리얼넘버</th>
+          <th>매체</th><th>상세위치</th><th>증상</th><th>상태</th><th>경로</th><th>관리</th>
+        </tr></thead>
+        <tbody id="listBody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 중복·재발 분석 ─── -->
+<section class="tab" id="tab-dup">
+  <div class="grid g2">
+    <div class="card">
+      <h2>지점별 중복 접수 (2회 이상)</h2>
+      <div class="table-wrap" style="max-height:420px">
+        <table>
+          <thead><tr><th>지점명</th><th>접수 횟수</th><th>최근 접수일</th><th>주요 매체</th></tr></thead>
+          <tbody id="dupStoreBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>동일 장비 재발 (시리얼 2회 이상)</h2>
+      <div class="table-wrap" style="max-height:420px">
+        <table>
+          <thead><tr><th>시리얼넘버</th><th>지점명</th><th>재발 횟수</th><th>최근 접수일</th></tr></thead>
+          <tbody id="dupSerialBody"></tbody>
+        </table>
+      </div>
+      <div class="hint">동일 시리얼 재발 건은 장비 교체 검토 대상으로 관리하세요.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 기준 설정 ─── -->
+<section class="tab" id="tab-set">
+  <div class="card" style="max-width:560px">
+    <h2>장애발생율 산출 기준</h2>
+    <div class="grid g2" style="margin-bottom:14px">
+      <div><label>전체 개통 대수 (장비 기준)</label><input type="number" id="setDevices" min="1"></div>
+      <div><label>전체 운영 지점 수</label><input type="number" id="setStores" min="1"></div>
+    </div>
+    <div class="grid g2" style="margin-bottom:14px">
+      <div><label>접수요청 메일 수신처 (참고 표기)</label><input id="setMailTo" placeholder="예: skb-onad@..."></div>
+      <div><label>접수자 서명 (메일 하단)</label><input id="setSign" placeholder="예: 강남Biz전문센터 ○○○"></div>
+    </div>
+    <button class="btn primary" onclick="saveSettings()">기준 저장</button>
+    <div class="hint">장애발생율 = 장애 발생 대수(시리얼 고유 건수) ÷ 전체 개통 대수. 실시간 공유 모드에서는 기준값도 팀 전체에 공유됩니다.</div>
+  </div>
+  <div class="card" style="max-width:560px">
+    <h2>데이터 관리</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+      실시간 공유 모드에서는 모든 데이터가 Firebase(Firestore)에 저장되어 팀원 모두에게 즉시 반영됩니다.
+      JSON 백업은 보관용/타 시스템 이관용으로 활용하세요.
+    </p>
+    <button class="btn danger" onclick="clearAll()">전체 데이터 삭제 (팀 공유 데이터 포함)</button>
+  </div>
+</section>
+
+</main>
+
+<dialog id="dlg">
+  <div class="dlg-head"><span id="dlgTitle">미리보기</span><button class="btn sm" onclick="dlg.close()" style="background:#fff">닫기</button></div>
+  <div class="dlg-body"><pre id="dlgBody"></pre></div>
+  <div class="dlg-foot">
+    <button class="btn primary" onclick="copyDlg()">본문 복사</button>
+  </div>
+</dialog>
+
+<div id="toast"></div>
+
+<script type="module">
+/* ============================================================
+   ★★★ 실시간 공유 설정 (여기만 수정하면 됩니다) ★★★
+
+   1. https://console.firebase.google.com 접속 → 프로젝트 만들기
+   2. 좌측 [빌드 > Firestore Database] → 데이터베이스 만들기
+      - 위치: asia-northeast3 (서울)
+      - 보안 규칙: "테스트 모드"로 시작 (아래 4번 참고)
+   3. 프로젝트 설정(톱니바퀴) → 일반 → 내 앱 → 웹 앱(</>) 추가
+      → 표시되는 firebaseConfig 값을 아래에 그대로 붙여넣기
+   4. Firestore > 규칙 탭에서 아래로 교체 후 게시:
+        rules_version = '2';
+        service cloud.firestore {
+          match /databases/{database}/documents {
+            match /{document=**} {
+              allow read, write: if true;
+            }
+          }
+        }
+      (테스트 모드는 30일 후 만료되므로 위 규칙으로 교체 필수)
+   5. 이 파일을 팀원들에게 배포 (카톡/메일/사내망)
+      → 같은 설정값이 들어간 파일을 여는 사람은 모두
+        동일한 리스트를 실시간으로 보게 됩니다.
+
+   ※ apiKey가 비어 있으면 자동으로 "로컬 모드"(개인 저장)로 동작합니다.
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBCDjn1Un9H3vm9X8JIw6uilutqXwtwiLg",                  // ← 여기에 붙여넣기
+  authDomain: "emart-ts.firebaseapp.com",
+  projectId: "emart-ts",
+  storageBucket: "emart-ts.firebasestorage.app",
+  messagingSenderId: "551583373128",
+  appId: "1:551583373128:web:add58c69a748477f16857d"
+};
+/* ============================================================ */
+
+const LS_KEY='emart_fault_list_v1', LS_SET='emart_fault_settings_v1';
+const DEFAULT_SET={devices:2243,stores:102,mailTo:'',sign:''};
+let items=[], settings=Object.assign({},DEFAULT_SET);
+let editId=null, cloud=false, db=null, fs=null;
+const dlg=document.getElementById('dlg');
+window.dlg=dlg;
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const today=()=>new Date().toISOString().slice(0,10);
+const newId=()=>Date.now()+'-'+Math.random().toString(36).slice(2,7);
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
+
+/* ── 저장 계층 (로컬 ↔ Firestore 자동 전환) ── */
+async function initStorage(){
+  if(FIREBASE_CONFIG.apiKey){
+    try{
+      const appMod=await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
+      fs=await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
+      const app=appMod.initializeApp(FIREBASE_CONFIG);
+      db=fs.getFirestore(app);
+      cloud=true;
+      $('syncBadge').textContent='● 실시간 공유 중';
+      $('syncBadge').classList.add('on');
+
+      // 접수 리스트 실시간 구독
+      fs.onSnapshot(fs.collection(db,'faults'),snap=>{
+        items=snap.docs.map(d=>d.data());
+        renderAll();
+      },err=>{
+        console.error(err);
+        $('syncBadge').textContent='● 연결 오류';
+        $('syncBadge').classList.add('err');
+        toast('Firestore 연결 오류 — 보안 규칙/설정값을 확인하세요');
+      });
+      // 기준 설정 실시간 구독
+      fs.onSnapshot(fs.doc(db,'config','settings'),snap=>{
+        if(snap.exists())settings=Object.assign({},DEFAULT_SET,snap.data());
+        loadSettingsForm();renderAll();
+      });
+      return;
+    }catch(e){
+      console.error(e);
+      toast('Firebase 초기화 실패 — 로컬 모드로 전환합니다');
+    }
+  }
+  // 로컬 모드
+  cloud=false;
+  $('localNotice').style.display='block';
+  items=JSON.parse(localStorage.getItem(LS_KEY)||'[]');
+  settings=Object.assign({},DEFAULT_SET,JSON.parse(localStorage.getItem(LS_SET)||'{}'));
+  loadSettingsForm();renderAll();
+}
+async function dbPut(it){
+  if(cloud){await fs.setDoc(fs.doc(db,'faults',it.id),it);}
+  else{const i=items.findIndex(x=>x.id===it.id);i>-1?items[i]=it:items.push(it);
+    localStorage.setItem(LS_KEY,JSON.stringify(items));renderAll();}
+}
+async function dbDel(id){
+  if(cloud){await fs.deleteDoc(fs.doc(db,'faults',id));}
+  else{items=items.filter(x=>x.id!==id);
+    localStorage.setItem(LS_KEY,JSON.stringify(items));renderAll();}
+}
+async function dbPutSettings(){
+  if(cloud){await fs.setDoc(fs.doc(db,'config','settings'),settings);}
+  else{localStorage.setItem(LS_SET,JSON.stringify(settings));renderAll();}
+}
+
+/* ── 탭 ── */
+window.showTab=function(name){
+  document.querySelectorAll('.tab').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
+  $('tab-'+name).classList.add('active');
+}
+
+/* ── 등록/수정 ── */
+window.saveItem=async function(){
+  const it={
+    date:$('fDate').value, store:$('fStore').value.trim(), svc:$('fSvc').value.trim(),
+    serial:$('fSerial').value.trim(), media:$('fMedia').value, loc:$('fLoc').value.trim(),
+    status:$('fStatus').value, channel:$('fChannel').value, symptom:$('fSymptom').value.trim()
+  };
+  if(!it.date||!it.store||!it.symptom){toast('접수일자·지점명·증상은 필수입니다');return}
+  if(editId){
+    const old=items.find(x=>x.id===editId);
+    it.id=editId; if(old&&old.created)it.created=old.created;
+    editId=null;$('editingLabel').textContent='';
+    await dbPut(it);toast('수정 완료');
+  }else{
+    it.id=newId();it.created=new Date().toISOString();
+    await dbPut(it);toast('접수 등록 완료'+(cloud?' — 팀원 화면에 반영됨':''));
+  }
+  resetForm();
+}
+window.resetForm=function(){
+  editId=null;$('editingLabel').textContent='';
+  $('fDate').value=today();['fStore','fSvc','fSerial','fLoc','fSymptom'].forEach(k=>$(k).value='');
+  $('fMedia').value='사이니지';$('fStatus').value='접수';$('fChannel').value='메일';
+}
+window.editItem=function(id){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  editId=id;$('editingLabel').textContent='(수정 중)';
+  $('fDate').value=it.date;$('fStore').value=it.store;$('fSvc').value=it.svc;$('fSerial').value=it.serial;
+  $('fMedia').value=it.media;$('fLoc').value=it.loc;$('fStatus').value=it.status;
+  $('fChannel').value=it.channel||'메일';$('fSymptom').value=it.symptom;
+  showTab('reg');window.scrollTo({top:0});
+}
+window.delItem=async function(id){
+  if(!confirm('이 접수 건을 삭제할까요?'+(cloud?' (팀 공유 데이터에서 삭제됩니다)':'')))return;
+  await dbDel(id);toast('삭제되었습니다');
+}
+window.cycleStatus=async function(id){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  const next=Object.assign({},it,{status:it.status==='접수'?'처리중':it.status==='처리중'?'완료':'접수'});
+  await dbPut(next);
+}
+
+/* ── 리스트 ── */
+function sortKey(it){return (it.date||'')+(it.created||'')}
+window.renderList=function(){
+  const q=($('q').value||'').toLowerCase(), fst=$('fltStatus').value, fm=$('fltMedia').value;
+  const dupStores=getDupStores();
+  const asc=[...items].sort((a,b)=>sortKey(a).localeCompare(sortKey(b)));
+  const noMap=new Map(asc.map((it,i)=>[it.id,i+1]));
+  const sorted=[...asc].reverse();
+  let rows='',cnt=0;
+  sorted.forEach(it=>{
+    if(fst&&it.status!==fst)return;
+    if(fm&&it.media!==fm)return;
+    if(q&&!((it.store+it.serial+it.svc+it.symptom+it.loc).toLowerCase().includes(q)))return;
+    cnt++;
+    const dup=dupStores.has(it.store)?' <span class="badge dup">중복</span>':'';
+    rows+=`<tr>
+      <td class="num">${noMap.get(it.id)}</td><td class="num">${esc(it.date)}</td>
+      <td><b>${esc(it.store)}</b>${dup}</td>
+      <td class="num">${esc(it.svc)||'-'}</td><td class="num">${esc(it.serial)||'-'}</td>
+      <td>${esc(it.media)}</td><td>${esc(it.loc)||'-'}</td><td>${esc(it.symptom)}</td>
+      <td><button class="badge ${it.status}" style="border:none;cursor:pointer" title="클릭 시 상태 변경"
+        onclick="cycleStatus('${it.id}')">${it.status}</button></td>
+      <td>${esc(it.channel||'-')}</td>
+      <td style="white-space:nowrap">
+        <button class="btn sm" onclick="editItem('${it.id}')">수정</button>
+        <button class="btn sm danger" onclick="delItem('${it.id}')">삭제</button>
+      </td></tr>`;
+  });
+  $('listBody').innerHTML=rows||'<tr><td colspan="11"><div class="empty">조건에 맞는 접수 건이 없습니다.</div></td></tr>';
+  $('listCount').textContent='표시 '+cnt+'건 / 전체 '+items.length+'건';
+}
+
+/* ── 통계 ── */
+function getDupStores(){
+  const m={};items.forEach(it=>m[it.store]=(m[it.store]||0)+1);
+  return new Set(Object.keys(m).filter(k=>m[k]>=2));
+}
+function renderDash(){
+  const total=items.length;
+  const ym=today().slice(0,7);
+  const month=items.filter(i=>(i.date||'').startsWith(ym)).length;
+  const open=items.filter(i=>i.status!=='완료').length;
+  $('stTotal').innerHTML=total+'<small> 건</small>';
+  $('stMonth').innerHTML=month+'<small> 건</small>';
+  $('stOpen').innerHTML=open+'<small> 건</small>';
+
+  const serials=new Set(), noSerial=[];
+  items.forEach(i=>i.serial?serials.add(i.serial):noSerial.push(i));
+  const faultDevices=serials.size+noSerial.length;
+  const rate=settings.devices>0?(faultDevices/settings.devices*100):0;
+  $('gaugeVal').textContent=rate.toFixed(2)+'%';
+  $('gaugeArc').style.strokeDashoffset=402-402*Math.min(rate,100)/100;
+  $('gaugeArc').style.stroke=rate>=10?'var(--bad)':rate>=5?'var(--warn)':'var(--em-yellow)';
+  $('dTotalDevices').textContent=Number(settings.devices).toLocaleString()+' 대';
+  $('dFaultDevices').textContent=faultDevices.toLocaleString()+' 대';
+
+  const faultStores=new Set(items.map(i=>i.store)).size;
+  $('dTotalStores').textContent=Number(settings.stores).toLocaleString()+' 개점';
+  $('dFaultStores').textContent=faultStores.toLocaleString()+' 개점';
+  $('dStoreRate').textContent=settings.stores>0?(faultStores/settings.stores*100).toFixed(1)+'%':'-';
+
+  const mm={};items.forEach(i=>mm[i.media]=(mm[i.media]||0)+1);
+  const max=Math.max(1,...Object.values(mm));
+  const entries=Object.entries(mm).sort((a,b)=>b[1]-a[1]);
+  $('mediaBars').innerHTML=entries.length?entries.map(([k,v])=>`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <span style="width:76px;font-size:12px;font-weight:600">${esc(k)}</span>
+      <div style="flex:1;background:#f0eee8;border-radius:6px;height:20px;overflow:hidden">
+        <div style="width:${v/max*100}%;height:100%;background:var(--em-dark);border-radius:6px;
+          display:flex;align-items:center;justify-content:flex-end;padding-right:6px">
+          <span style="color:var(--em-yellow);font-size:11px;font-weight:700">${v}</span>
+        </div>
+      </div></div>`).join('')
+    :'<div class="empty">등록된 접수 건이 없습니다.</div>';
+
+  const sm={};items.forEach(i=>sm[i.store]=(sm[i.store]||0)+1);
+  const dups=Object.entries(sm).filter(([,v])=>v>=2).sort((a,b)=>b[1]-a[1]);
+  $('stDupStore').innerHTML=dups.length+'<small> 개점</small>';
+  $('dashDup').innerHTML=dups.length?
+    '<table><thead><tr><th>지점명</th><th>접수 횟수</th></tr></thead><tbody>'+
+    dups.slice(0,5).map(([k,v])=>`<tr><td><b>${esc(k)}</b></td><td class="num">${v}회</td></tr>`).join('')+
+    '</tbody></table>'
+    :'<div class="empty">중복 접수 지점이 없습니다.</div>';
+}
+function renderDup(){
+  const byStore={},bySerial={};
+  items.forEach(i=>{
+    (byStore[i.store]=byStore[i.store]||[]).push(i);
+    if(i.serial)(bySerial[i.serial]=bySerial[i.serial]||[]).push(i);
+  });
+  const sRows=Object.entries(byStore).filter(([,v])=>v.length>=2).sort((a,b)=>b[1].length-a[1].length)
+    .map(([k,v])=>{
+      const last=v.map(x=>x.date).sort().pop();
+      const media=[...new Set(v.map(x=>x.media))].join(', ');
+      return `<tr><td><b>${esc(k)}</b></td><td class="num">${v.length}회</td><td class="num">${esc(last)}</td><td>${esc(media)}</td></tr>`;
+    }).join('');
+  $('dupStoreBody').innerHTML=sRows||'<tr><td colspan="4"><div class="empty">2회 이상 접수된 지점이 없습니다.</div></td></tr>';
+
+  const rRows=Object.entries(bySerial).filter(([,v])=>v.length>=2).sort((a,b)=>b[1].length-a[1].length)
+    .map(([k,v])=>{
+      const last=v.map(x=>x.date).sort().pop();
+      return `<tr><td class="num">${esc(k)}</td><td>${esc(v[0].store)}</td><td class="num">${v.length}회</td><td class="num">${esc(last)}</td></tr>`;
+    }).join('');
+  $('dupSerialBody').innerHTML=rRows||'<tr><td colspan="4"><div class="empty">재발 장비가 없습니다.</div></td></tr>';
+}
+function renderStoreList(){
+  const s=[...new Set(items.map(i=>i.store))].sort();
+  $('storeList').innerHTML=s.map(x=>`<option value="${esc(x)}">`).join('');
+}
+function renderAll(){renderDash();renderList();renderDup();renderStoreList()}
+
+/* ── 메일/카톡 생성 ── */
+function formSnapshot(){
+  return {date:$('fDate').value||today(),store:$('fStore').value.trim()||'(지점명)',
+    svc:$('fSvc').value.trim()||'-',serial:$('fSerial').value.trim()||'-',
+    media:$('fMedia').value,loc:$('fLoc').value.trim()||'-',symptom:$('fSymptom').value.trim()||'(증상 기재)'};
+}
+window.genMail=function(){
+  const f=formSnapshot();
+  const no=items.length+1;
+  const body=
+`[이마트 On-Ad 장애접수 요청]
+
+안녕하세요.${settings.sign?'\n'+settings.sign+'입니다.':''}
+아래 장애 건 접수 요청드립니다.
+
+──────────────────────
+NO        : ${no}
+접수일자  : ${f.date}
+지점명    : ${f.store}
+서비스번호: ${f.svc}
+시리얼넘버: ${f.serial}
+매체      : ${f.media}
+상세위치  : ${f.loc}
+증상      : ${f.symptom}
+──────────────────────
+
+확인 후 처리 부탁드립니다.
+감사합니다.${settings.mailTo?'\n\n(수신: '+settings.mailTo+')':''}`;
+  openDlg('📧 접수요청 메일 본문',body);
+}
+window.genKakao=function(){
+  const f=formSnapshot();
+  const body=`[장애접수 안내] ${f.store} / ${f.media} 장애 건 방금 메일로 접수 요청드렸습니다. 확인 부탁드립니다. (증상: ${f.symptom})`;
+  openDlg('💬 카톡 간단소통 메시지',body);
+}
+function openDlg(title,body){$('dlgTitle').textContent=title;$('dlgBody').textContent=body;dlg.showModal()}
+window.copyDlg=function(){
+  navigator.clipboard.writeText($('dlgBody').textContent)
+    .then(()=>toast('본문이 복사되었습니다'))
+    .catch(()=>{const r=document.createRange();r.selectNodeContents($('dlgBody'));
+      const s=getSelection();s.removeAllRanges();s.addRange(r);document.execCommand('copy');toast('본문이 복사되었습니다')});
+}
+
+/* ── 설정 ── */
+function loadSettingsForm(){
+  $('setDevices').value=settings.devices;$('setStores').value=settings.stores;
+  $('setMailTo').value=settings.mailTo;$('setSign').value=settings.sign;
+}
+window.saveSettings=async function(){
+  settings.devices=parseInt($('setDevices').value)||1;
+  settings.stores=parseInt($('setStores').value)||1;
+  settings.mailTo=$('setMailTo').value.trim();settings.sign=$('setSign').value.trim();
+  await dbPutSettings();toast('기준이 저장되었습니다'+(cloud?' — 팀 전체 적용':''));
+}
+window.clearAll=async function(){
+  if(!confirm('모든 접수 데이터를 삭제합니다.'+(cloud?' 팀원 모두의 화면에서도 삭제됩니다.':'')+' 계속할까요?'))return;
+  if(cloud){for(const it of [...items])await fs.deleteDoc(fs.doc(db,'faults',it.id));}
+  else{items=[];localStorage.setItem(LS_KEY,'[]');renderAll();}
+  toast('전체 삭제 완료');
+}
+
+/* ── 백업(JSON/CSV) ── */
+window.exportJSON=function(){
+  const blob=new Blob([JSON.stringify({exported:new Date().toISOString(),settings,items},null,2)],{type:'application/json'});
+  dl(blob,'이마트_장애접수_'+today()+'.json');toast('JSON 백업 파일이 생성되었습니다');
+}
+window.importJSON=async function(e){
+  const file=e.target.files[0];if(!file)return;
+  const rd=new FileReader();
+  rd.onload=async()=>{try{
+    const data=JSON.parse(rd.result);
+    const incoming=Array.isArray(data)?data:(data.items||[]);
+    const keys=new Set(items.map(i=>i.id||i.date+'|'+i.store+'|'+i.serial+'|'+i.symptom));
+    let added=0;
+    for(const it of incoming){
+      const k=it.id||it.date+'|'+it.store+'|'+it.serial+'|'+it.symptom;
+      if(keys.has(k))continue;
+      if(!it.id)it.id=newId();
+      await dbPut(it);keys.add(k);added++;
+    }
+    toast(added+'건 병합 완료 (중복 '+(incoming.length-added)+'건 제외)');
+  }catch(err){console.error(err);toast('파일을 읽을 수 없습니다')}};
+  rd.readAsText(file);e.target.value='';
+}
+window.exportCSV=function(){
+  const head=['NO','접수일자','지점명','서비스번호','시리얼넘버','매체','상세위치','증상','처리상태','접수경로'];
+  const asc=[...items].sort((a,b)=>sortKey(a).localeCompare(sortKey(b)));
+  const rows=asc.map((it,i)=>[i+1,it.date,it.store,it.svc,it.serial,it.media,it.loc,it.symptom,it.status,it.channel||'']
+    .map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','));
+  const blob=new Blob(['\uFEFF'+head.join(',')+'\n'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
+  dl(blob,'이마트_장애접수_'+today()+'.csv');toast('CSV 파일이 다운로드되었습니다');
+}
+function dl(blob,name){
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+}
+
+/* init */
+$('fDate').value=today();
+initStorage();
+</script>
+</body>
+</html>
