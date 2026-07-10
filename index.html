@@ -326,7 +326,7 @@
       <table>
         <thead><tr>
           <th>NO</th><th>접수일</th><th>MAC</th><th>점포명</th><th>시리얼</th><th>디바이스명</th>
-          <th>증상</th><th>접수내용</th><th>상태</th><th>경로</th><th>관리</th>
+          <th>증상</th><th>접수내용</th><th>조치내용</th><th>상태</th><th>경로</th><th>관리</th>
         </tr></thead>
         <tbody id="listBody"></tbody>
       </table>
@@ -426,6 +426,28 @@
   <div class="dlg-foot">
     <button class="btn dark" id="dlgRich" style="display:none" onclick="copyRich()">📋 표 서식 복사 (메일 붙여넣기용)</button>
     <button class="btn primary" onclick="copyDlg()">본문 복사</button>
+  </div>
+</dialog>
+
+<dialog id="doneDlg">
+  <div class="dlg-head" style="background:var(--ok)"><span>✅ 조치 내용 입력</span>
+    <button class="btn sm" onclick="document.getElementById('doneDlg').close()" style="background:#fff">닫기</button></div>
+  <div class="dlg-body">
+    <div id="doneInfo" style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.7"></div>
+    <div class="grid g2" style="margin-bottom:12px">
+      <div><label>완료일</label><input type="date" id="doneDate"></div>
+      <div style="display:flex;align-items:flex-end;padding-bottom:8px">
+        <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="doneMark" style="width:auto"> 저장하면서 <b>완료</b> 처리
+        </label>
+      </div>
+    </div>
+    <label>조치 내용 (결과) *</label>
+    <textarea id="doneText" style="min-height:90px" placeholder="예: 셋톱 재부팅 후 정상 송출 확인 / 아쿠아 리부팅 복구"></textarea>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn" onclick="document.getElementById('doneDlg').close()">취소</button>
+    <button class="btn primary" onclick="saveDone()">저장</button>
   </div>
 </dialog>
 
@@ -694,8 +716,33 @@ window.delItem=async function(id){
 }
 window.cycleStatus=async function(id){
   const it=items.find(x=>x.id===id);if(!it)return;
-  const next=Object.assign({},it,{status:it.status==='접수'?'처리중':it.status==='처리중'?'완료':'접수'});
+  // 처리중 → 완료 전환 시 조치 내용 입력창 표시
+  if(it.status==='처리중'){openDoneDlg(id,true);return;}
+  const next=Object.assign({},it,{status:it.status==='접수'?'처리중':'접수'});
   await dbPut(next);
+}
+
+/* ── 건별 조치 내용 입력 ── */
+let doneId=null;
+window.openDoneDlg=function(id,markComplete){
+  const it=items.find(x=>x.id===id);if(!it)return;
+  doneId=id;
+  $('doneInfo').innerHTML=`<b>${esc(it.store)}</b> · ${esc(it.dev||it.deviceInfo)||'-'}<br>`
+    +`${esc((it.date||'').slice(0,10))} 접수 · 현재 <b>${esc(it.status)}</b> · 내용: ${esc(it.content||it.symType)||'-'}`;
+  $('doneDate').value=it.doneDate||today();
+  $('doneText').value=it.action1||'';
+  $('doneMark').checked=markComplete!==false&&it.status!=='완료';
+  document.getElementById('doneDlg').showModal();
+}
+window.saveDone=async function(){
+  const it=items.find(x=>x.id===doneId);if(!it)return;
+  const txt=$('doneText').value.trim();
+  if(!txt){toast('조치 내용을 입력하세요');return;}
+  const next=Object.assign({},it,{action1:txt,doneDate:$('doneDate').value||today()});
+  if($('doneMark').checked)next.status='완료';
+  document.getElementById('doneDlg').close();
+  await dbPut(next);
+  toast($('doneMark').checked?'조치 내용 저장 · 완료 처리되었습니다':'조치 내용이 저장되었습니다');
 }
 
 /* ── 리스트 ── */
@@ -719,15 +766,17 @@ window.renderList=function(){
       <td><b>${esc(it.store)}</b>${dup}</td>
       <td class="num">${esc(it.serial)||'-'}</td><td>${esc(it.dev)||'-'}</td>
       <td>${esc(it.symType)||'-'}</td><td>${esc(it.content)}</td>
-      <td><button class="badge ${it.status}" style="border:none;cursor:pointer" title="클릭 시 상태 변경"
+      <td>${esc(it.action1)||'-'}${it.action2?' / '+esc(it.action2):''}${it.doneDate?`<div class="hint" style="margin-top:2px">완료 ${esc(it.doneDate)}</div>`:''}</td>
+      <td><button class="badge ${it.status}" style="border:none;cursor:pointer" title="클릭 시 상태 변경 (처리중→완료 시 조치입력)"
         onclick="cycleStatus('${it.id}')">${it.status}</button></td>
       <td>${esc(it.channel||'-')}</td>
       <td style="white-space:nowrap">
+        <button class="btn sm" title="조치 내용 입력" onclick="openDoneDlg('${it.id}',false)">조치</button>
         <button class="btn sm" onclick="editItem('${it.id}')">수정</button>
         <button class="btn sm danger" onclick="delItem('${it.id}')">삭제</button>
       </td></tr>`;
   });
-  $('listBody').innerHTML=rows||'<tr><td colspan="11"><div class="empty">조건에 맞는 접수 건이 없습니다.</div></td></tr>';
+  $('listBody').innerHTML=rows||'<tr><td colspan="12"><div class="empty">조건에 맞는 접수 건이 없습니다.</div></td></tr>';
   $('listCount').textContent='표시 '+cnt+'건 / 전체 '+items.length+'건';
 }
 
@@ -773,8 +822,9 @@ function renderDash(){
       <td class="num" style="${old?'color:var(--bad);font-weight:700':''}">${el}</td>
       <td><b>${esc(i.store)}</b></td><td>${esc(i.dev||i.deviceInfo)||'-'}</td>
       <td>${esc(i.content||i.symType)||'-'}</td>
-      <td><button class="badge ${i.status}" style="border:none;cursor:pointer" title="클릭 시 상태 변경"
-        onclick="cycleStatus('${i.id}')">${i.status}</button></td></tr>`;
+      <td style="white-space:nowrap"><button class="badge ${i.status}" style="border:none;cursor:pointer" title="클릭 시 상태 변경 (처리중→완료 시 조치입력)"
+        onclick="cycleStatus('${i.id}')">${i.status}</button>
+        <button class="btn sm" title="조치 내용 입력" onclick="openDoneDlg('${i.id}',true)">조치</button></td></tr>`;
   }).join('')
     :'<tr><td colspan="6"><div class="empty">미완료 접수 건이 없습니다. 👍</div></td></tr>';
 }
@@ -1144,9 +1194,9 @@ window.exportJSON=function(){
   dl(blob,'이마트_장애접수_'+today()+'.json');toast('JSON 백업 파일이 생성되었습니다');
 }
 window.exportCSV=function(){
-  const head=['NO','접수일','MAC','점포명','시리얼','점포코드','인덱스','디바이스명','서비스관리번호','증상유형','접수내용','1차조치','2차조치','상태','경로','비고'];
+  const head=['NO','접수일','MAC','점포명','시리얼','점포코드','인덱스','디바이스명','서비스관리번호','증상유형','접수내용','1차조치','2차조치','완료일','상태','경로','비고'];
   const asc=[...items].sort((a,b)=>sortKey(a).localeCompare(sortKey(b)));
-  const rows=asc.map((it,i)=>[i+1,it.date,it.mac,it.store,it.serial,it.code,it.idx,it.dev,it.svc,it.symType,it.content,it.action1,it.action2,it.status,it.channel,it.note]
+  const rows=asc.map((it,i)=>[i+1,it.date,it.mac,it.store,it.serial,it.code,it.idx,it.dev,it.svc,it.symType,it.content,it.action1,it.action2,it.doneDate,it.status,it.channel,it.note]
     .map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','));
   const blob=new Blob(['﻿'+head.join(',')+'\n'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
   dl(blob,'이마트_장애접수_'+today()+'.csv');toast('CSV 파일이 다운로드되었습니다');
