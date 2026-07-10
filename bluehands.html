@@ -7,6 +7,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 :root{--red:#EA002C;--ink:#191F28;--bd:#E5E8EC;--mut:#6B7280;--faint:#9CA3AF}
 *{box-sizing:border-box}
@@ -81,6 +82,7 @@ tr.xrow td{color:var(--faint);background:#F3F4F6}
     <button class="tab on" id="tab-dash" onclick="go('dash')">대시보드</button>
     <button class="tab" id="tab-list" onclick="go('list')">가맹점 목록</button>
     <button class="tab" id="tab-chg" onclick="go('chg')">회원사 변동</button>
+    <button class="tab" id="tab-order" onclick="go('order')">청약 관리</button>
   </div>
 </div>
 
@@ -119,7 +121,7 @@ function seedData(){
     {id:"c5",regD:"2026-01-15",effD:"",juris:"남부",name:"신림점",type:"폐업예정",effect:"대상 제외 예정",applied:"N",by:"",note:"폐업 확정 시 X 처리 — 현 대장에 신림점 명칭 없음, 거점명 확인 필요"},
     {id:"c6",regD:"2026-01-01",effD:"2026-01-01",juris:"대구",name:"유가점",type:"신규가입",effect:"대상 추가",applied:"Y",by:"",note:"신규업체 — 대장 등재 완료 (업체코드 미부여)"},
   ];
-  return {stores, changes, exportedAt:"", exportedBy:""};
+  return {stores, changes, orders:[], exportedAt:"", exportedBy:""};
 }
 
 /* ══════════ 상태 & 저장 ══════════ */
@@ -137,7 +139,7 @@ const FIREBASE_CONFIG = {
   messagingSenderId: "551583373128",
   appId: "1:551583373128:web:add58c69a748477f16857d"
 };
-const COL_STORES = "bluehands_stores", COL_CHANGES = "bluehands_changes";
+const COL_STORES = "bluehands_stores", COL_CHANGES = "bluehands_changes", COL_ORDERS = "bluehands_orders";
 const AUTH_EMAIL = "team@bluehands.web";   // 팀 공용 로그인 계정 (비밀번호만 팀에 공유)
 
 const LSKEY = "bluehands_skb_v1";
@@ -204,7 +206,7 @@ async function initStorage(){
       fauth = firebase.auth();
       cloud = true;
       setSync("connecting");
-      DB = {stores:[], changes:[], exportedAt:"", exportedBy:""};
+      DB = {stores:[], changes:[], orders:[], exportedAt:"", exportedBy:""};
       fauth.onAuthStateChanged(user=>{
         if(user){ hideLogin(); startRealtime(); }
         else { setSync("local"); showLogin(); }
@@ -218,16 +220,19 @@ async function initStorage(){
 function startRealtime(){
   if(rtStarted) return; rtStarted=true;
   setSync("connecting");
-  let gotStores=false, gotChanges=false;
+  const got={s:false,c:false,o:false};
+  const maybe=()=>{ if(got.s&&got.c&&got.o) render(); };
   fdb.collection(COL_STORES).onSnapshot(snap=>{
     DB.stores = snap.docs.map(d=>d.data());
-    gotStores=true; setSync("on");
-    if(gotStores&&gotChanges) render();
+    got.s=true; setSync("on"); maybe();
   }, err=>{ console.error(err); setSync("err"); toast("실시간 서버 연결 오류 — 잠시 후 새로고침 해주세요"); });
   fdb.collection(COL_CHANGES).onSnapshot(snap=>{
     DB.changes = snap.docs.map(d=>d.data());
-    gotChanges=true;
-    if(gotStores&&gotChanges) render();
+    got.c=true; maybe();
+  }, err=>{ console.error(err); });
+  fdb.collection(COL_ORDERS).onSnapshot(snap=>{
+    DB.orders = snap.docs.map(d=>d.data());
+    got.o=true; maybe();
   }, err=>{ console.error(err); });
   render();
   seedIfEmpty();
@@ -253,6 +258,8 @@ async function seedIfEmpty(){
 function saveStoreCloud(s){ return fdb.collection(COL_STORES).doc(s.id).set(s); }
 function delStoreCloud(id){ return fdb.collection(COL_STORES).doc(id).delete(); }
 function saveChangeCloud(c){ return fdb.collection(COL_CHANGES).doc(c.id).set(c); }
+function saveOrderCloud(o){ return fdb.collection(COL_ORDERS).doc(o.id).set(o); }
+function delOrderCloud(id){ return fdb.collection(COL_ORDERS).doc(id).delete(); }
 async function importToCloud(d){
   try{
     let n=0; const stores=d.stores||[];
@@ -338,12 +345,14 @@ function go(t){ tab=t; page=0; render(); }
 function render(){
   const S = stats();
   document.getElementById("subTitle").textContent = `전문 ${DB.stores.length}개점 · 전환대상 ${S.T.length}개점 (회원사 기준)`;
-  ["dash","list","chg"].forEach(t=>document.getElementById("tab-"+t).classList.toggle("on",t===tab));
+  ["dash","list","chg","order"].forEach(t=>document.getElementById("tab-"+t).classList.toggle("on",t===tab));
   document.getElementById("tab-chg").textContent = "회원사 변동"+(S.pend?` (미반영 ${S.pend})`:"");
+  const oc=(DB.orders||[]).length; document.getElementById("tab-order").textContent = "청약 관리"+(oc?` (${oc})`:"");
   const m = document.getElementById("main");
   if(tab==="dash") m.innerHTML = vDash(S);
   else if(tab==="list") m.innerHTML = vList(S);
-  else m.innerHTML = vChg(S);
+  else if(tab==="chg") m.innerHTML = vChg(S);
+  else m.innerHTML = vOrders(S);
 }
 const chip = (s) => s?`<span class="chip" style="background:${SC[s][0]};color:${SC[s][1]}">${s}</span>`:"";
 
@@ -404,7 +413,7 @@ function vList(S){
   return `
   <div class="card" style="margin-bottom:14px">
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-      <input placeholder="거점명·업체코드·대표자·주소 검색" value="${esc(filt.q)}" oninput="filt.q=this.value;page=0;renderListOnly()" style="flex:1 1 200px">
+      <input placeholder="거점명·업체코드·대표자·주소 검색" value="${esc(filt.q)}" oninput="filt.q=this.value;page=0;updateListBody()" style="flex:1 1 200px">
       <select onchange="filt.juris=this.value;page=0;render()"><option value="">전체 관할</option>${JURIS.map(j=>`<option ${filt.juris===j?"selected":""}>${j}</option>`).join("")}</select>
       <select onchange="filt.status=this.value;page=0;render()"><option value="">전체 상태</option>${STATUSES.map(s=>`<option ${filt.status===s?"selected":""}>${s}</option>`).join("")}</select>
       <select onchange="filt.target=this.value;page=0;render()"><option value="">대상+대상외</option><option ${filt.target==="대상"?"selected":""} value="대상">전환 대상만</option><option ${filt.target==="대상외"?"selected":""} value="대상외">대상외(X)만</option></select>
@@ -424,7 +433,31 @@ function vList(S){
   </div>
   <div style="font-size:11px;color:var(--faint);margin-top:10px">※ ● 표시는 원본 메모가 있는 가맹점. ${cloud?"수정 즉시 팀원 모두의 화면에 실시간 반영됩니다.":"수정 내용은 이 PC 브라우저에 자동저장됩니다 — 팀원과 공유하려면 상단 '공유파일 내보내기'로 JSON을 만들어 공유폴더에 올리세요."}</div>`;
 }
-function renderListOnly(){ if(tab==="list") render(); const inp=document.querySelector('#main input'); if(inp){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length);} }
+function updateListBody(){
+  if(tab!=="list") return;
+  const qq=(filt.q||"").trim();
+  const rows=sorted(DB.stores).filter(s=>
+    (!filt.juris||s.juris===filt.juris)&&(!filt.status||s.status===filt.status)
+    &&(!filt.target||(filt.target==="대상"?s.memX!=="X":s.memX==="X"))
+    &&(!qq||[s.name,s.addr,s.owner,s.code,s.phone].some(v=>(v||"").includes(qq))));
+  const pages=Math.max(1,Math.ceil(rows.length/PAGE));
+  if(page>=pages)page=pages-1; if(page<0)page=0;
+  const pr=rows.slice(page*PAGE,page*PAGE+PAGE);
+  const trs=pr.map(s=>`<tr class="row${s.memX==="X"?" xrow":""}" onclick="openEdit('${s.id}')">
+    <td>${s.memX==="X"?'<span style="font-size:11px;font-weight:800;color:#6B7280">대상외 X</span>':chip(s.status)}</td>
+    <td>${esc(s.juris)}</td><td style="font-weight:700">${esc(s.name)}${s.memo?' <span style="color:#B45309;font-size:10px">●</span>':""}</td>
+    <td class="num">${esc(s.code)}</td><td>${esc(s.owner)}</td><td class="num">${esc(s.phone)}</td><td>${esc(s.telco)}</td>
+    <td class="num" style="color:#0E7A45;font-weight:700">${esc(s.openD)}</td>
+    <td>${esc(s.tech||"")}${s.techPhone?' <span class="num" style="font-size:11px;color:var(--mut)">'+esc(s.techPhone)+"</span>":""}</td>
+    <td style="font-size:11px;color:var(--faint)">${esc(s.updatedAt||"")} ${esc(s.updatedBy||"")}</td></tr>`).join("")
+    || `<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--faint)">조건에 맞는 가맹점이 없습니다</td></tr>`;
+  const lb=document.getElementById("listBody"); if(lb) lb.innerHTML=trs;
+  const pg=document.getElementById("pager");
+  if(pg) pg.innerHTML=`<button class="btn-line" ${page===0?"disabled style='opacity:.4'":""} onclick="page--;updateListBody()">이전</button>`
+    +`<span class="num" style="font-size:13px;align-self:center">${page+1} / ${pages} <span style="color:var(--faint)">(${rows.length}건)</span></span>`
+    +`<button class="btn-line" ${page>=pages-1?"disabled style='opacity:.4'":""} onclick="page++;updateListBody()">다음</button>`;
+}
+function renderListOnly(){ updateListBody(); }
 
 function vChg(S){
   const trs = DB.changes.map(c=>`<tr>
@@ -490,6 +523,316 @@ function applyExclude(id){
   render(); toast(c.name+" → 대상 제외(X) 처리 및 반영 완료");
 }
 
+/* ══════════ 청약 관리 (회선 단위) ══════════ */
+const OCOLS = [
+  {k:"gubun",g:"구분",sub:"",w:80},
+  {k:"plan",g:"요금제",sub:"",w:100},
+  {k:"origNo",g:"서비스번호",sub:"원번호",w:118},
+  {k:"mediaNo",g:"서비스번호",sub:"매개번호",w:118},
+  {k:"selfMove",g:"자사번동",sub:"",w:70},
+  {k:"ext",g:"내선번호",sub:"",w:74},
+  {k:"device",g:"단말기",sub:"",w:74},
+  {k:"daenap",g:"대납",sub:"",w:50},
+  {k:"ilsi",g:"일시납",sub:"",w:56},
+  {k:"wifi",g:"부가서비스",sub:"WIFI",w:62},
+  {k:"airec",g:"부가서비스",sub:"AI레코딩",w:84},
+  {k:"callerid",g:"부가서비스",sub:"발신번호변경",w:108},
+  {k:"hunt",g:"헌트",sub:"",w:84},
+  {k:"discount",g:"부가할인",sub:"",w:74},
+  {k:"openD",g:"개통일",sub:"",w:92},
+  {k:"combine",g:"결합",sub:"",w:60},
+];
+const OKEYS = ["_cust"].concat(OCOLS.map(c=>c.k));
+const OH1 = ["고객명","구분","요금제","서비스번호","","자사번동","내선번호","단말기","대납","일시납","부가서비스","","","헌트","부가할인","개통일","결합"];
+const OH2 = ["","","","원번호","매개번호","","","","","","WIFI","AI레코딩","발신번호변경","","","",""];
+const OMERGES = [[0,0,1,0],[0,1,1,1],[0,2,1,2],[0,3,0,4],[0,5,1,5],[0,6,1,6],[0,7,1,7],[0,8,1,8],[0,9,1,9],[0,10,0,12],[0,13,1,13],[0,14,1,14],[0,15,1,15],[0,16,1,16]].map(a=>({s:{r:a[0],c:a[1]},e:{r:a[2],c:a[3]}}));
+const GUBUNS = ["번호이동","신규","데이터","IPTV"];
+const PLAN_TEL = ["실선","정액6"];
+const dnow = () => new Date().toISOString().slice(0,10);
+function planOptions(g){ return g==="데이터"?["보안GigaBiz"]:g==="IPTV"?["스탠다드"]:PLAN_TEL; }
+function emptyLine(){ return {gubun:"번호이동",plan:"",origNo:"",mediaNo:"",selfMove:"",ext:"",device:"",daenap:"",ilsi:"",wifi:"",airec:"",callerid:"",hunt:"",discount:"",openD:"",combine:""}; }
+const oval = (id)=>{ const e=document.getElementById(id); return e?e.value:""; };
+let curOrder = null;
+
+function vOrders(S){
+  const orders = (DB.orders||[]).slice().sort((a,b)=>String(b.updatedAt||b.createdAt||"").localeCompare(String(a.updatedAt||a.createdAt||"")));
+  const rows = orders.map(o=>{
+    const n=(o.lines||[]).length;
+    const st=o.status==="완료"?'<span class="tag-ok">완료</span>':'<span class="chip" style="background:#EEF0F3;color:#5B6472">'+esc(o.status||"요청")+'</span>';
+    const opens=(o.lines||[]).map(l=>l.openD).filter(Boolean).sort();
+    return `<tr class="row" onclick="openOrder('${o.id}')">
+      <td>${st}</td><td style="font-weight:700">${esc(o.customer||"(무제)")}${o.manager?' <span style="color:var(--faint);font-size:11px">'+esc(o.manager)+'</span>':""}</td>
+      <td style="font-size:11px">${o.caseType==="인터넷IPTV"?"인터넷·IPTV":"전화만"}</td>
+      <td class="num">${n}회선</td><td>${esc(o.juris||"")}</td>
+      <td class="num" style="color:#0E7A45;font-weight:700">${esc(opens[opens.length-1]||"")}</td>
+      <td style="font-size:11px;color:var(--faint)">${esc(o.updatedAt||o.createdAt||"")} ${esc(o.updatedBy||"")}</td></tr>`;
+  }).join("") || `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--faint)">등록된 청약이 없습니다. [+ 새 청약]으로 요청서를 만들거나, 완료 엑셀을 아래 영역에 끌어다 놓으세요.</td></tr>`;
+  return `
+  <div class="card" style="margin-bottom:14px">
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+      <div class="sec" style="margin:0">청약 관리 <span style="font-weight:400;color:var(--faint);font-size:11px">· 요청서 작성 → .xlsx 내보내기 → 개통 후 완료 엑셀 Drag&amp;Drop 반영</span></div>
+      <span style="flex:1"></span>
+      <button class="btn-line" onclick="document.getElementById('orderFile').click()">청약완료 엑셀 가져오기</button>
+      <input type="file" id="orderFile" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0]){importCompletion(this.files[0]);this.value='';}">
+      <button class="btn-red" onclick="openOrder(null)">+ 새 청약</button>
+    </div>
+  </div>
+  <div id="dropZone" ondragover="event.preventDefault();this.style.borderColor='var(--red)';this.style.background='#FFF5F6'" ondragleave="this.style.borderColor='#D6DAE0';this.style.background='#fff'" ondrop="orderDrop(event)"
+    style="border:2px dashed #D6DAE0;border-radius:12px;padding:18px;text-align:center;color:var(--mut);font-size:13px;margin-bottom:14px;background:#fff">
+    ⬇ 개통 완료 후 받은 <b>청약완료 엑셀</b>을 여기로 끌어다 놓으면, 고객명·원번호로 청약을 찾아 <b>매개번호·내선번호·개통일</b>이 자동 반영됩니다.
+  </div>
+  <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto">
+    <table><thead><tr><th>상태</th><th>고객명</th><th>케이스</th><th>회선</th><th>관할</th><th>개통일</th><th>최근수정</th></tr></thead>
+    <tbody>${rows}</tbody></table>
+  </div></div>
+  <div style="font-size:11px;color:var(--faint);margin-top:10px">※ <b>원번호</b> = 고객 대표번호(지역번호 또는 070). <b>매개번호</b> = 단말기 고유 070번호(개통 후 부여). 지역번호를 입힌 회선은 지역번호가 원번호, 아니면 070번호가 원번호입니다.</div>`;
+}
+function orderDrop(ev){ ev.preventDefault(); const z=document.getElementById('dropZone'); if(z){z.style.borderColor='#D6DAE0';z.style.background='#fff';} const f=ev.dataTransfer.files&&ev.dataTransfer.files[0]; if(f) importCompletion(f); }
+
+function openOrder(id){
+  curOrder = id ? JSON.parse(JSON.stringify((DB.orders||[]).find(o=>o.id===id)||{})) : {id:"",customer:"",manager:"",juris:JURIS[0],storeId:"",caseType:"전화만",otherCarrier:"",billReceived:"N",lineCountConf:"",status:"상담",lines:[emptyLine()],memo:""};
+  if(!curOrder.lines || !curOrder.lines.length) curOrder.lines=[emptyLine()];
+  renderOrderModal();
+}
+function renderOrderModal(){
+  const o=curOrder;
+  const th = `<tr><th style="font-size:10px;padding:5px 6px">#</th>${OCOLS.map(c=>`<th style="font-size:10px;padding:5px 6px;white-space:nowrap">${c.g}${c.sub?'<br><span style="color:var(--faint);font-weight:400">'+c.sub+'</span>':""}</th>`).join("")}<th></th></tr>`;
+  const trs = o.lines.map((ln,i)=>`<tr>
+    <td class="num" style="color:var(--faint);text-align:center">${i+1}</td>
+    ${OCOLS.map(c=>{
+      if(c.k==="gubun") return `<td><select data-li="${i}" data-k="gubun" onchange="onGubunChange(${i})" style="padding:3px 4px;font-size:11px;min-width:${c.w}px">${GUBUNS.map(g=>`<option ${ln.gubun===g?"selected":""}>${g}</option>`).join("")}</select></td>`;
+      if(c.k==="plan"){ const op=planOptions(ln.gubun); const all=(ln.plan&&op.indexOf(ln.plan)<0)?[ln.plan].concat(op):op; return `<td><select data-li="${i}" data-k="plan" style="padding:3px 4px;font-size:11px;min-width:${c.w}px">${all.map(p=>`<option ${ln.plan===p?"selected":""}>${p}</option>`).join("")}</select></td>`; }
+      if(c.k==="hunt"){ const hs=["","대표","종속"]; const all=(ln.hunt&&hs.indexOf(ln.hunt)<0)?hs.concat([ln.hunt]):hs; return `<td><select data-li="${i}" data-k="hunt" style="padding:3px 4px;font-size:11px;min-width:${c.w}px">${all.map(h=>`<option value="${esc(h)}" ${ln.hunt===h?"selected":""}>${h||"—"}</option>`).join("")}</select></td>`; }
+      return `<td><input data-li="${i}" data-k="${c.k}" value="${esc(ln[c.k]||"")}" style="padding:3px 5px;font-size:11px;width:${c.w}px"></td>`;
+    }).join("")}
+    <td style="text-align:center"><button class="btn-line" style="padding:2px 7px;font-size:12px;color:#A32626" onclick="delOrderLine(${i})">✕</button></td>
+  </tr>`).join("");
+  document.getElementById("modalHost").innerHTML = `
+  <div class="modal-bg" onclick="if(event.target===this)closeOrder()">
+    <div class="modal" style="max-width:1180px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div style="font-weight:900;font-size:17px">${o.id?esc(o.customer||"청약")+" 청약서":"새 청약 요청서"} ${o.status==="완료"?'<span class="tag-ok">완료</span>':'<span class="tag-no">요청</span>'}</div>
+        <button style="background:transparent;font-size:20px;color:var(--faint)" onclick="closeOrder()">✕</button>
+      </div>
+      <div class="fgrid">
+        <div style="flex:1 1 200px"><span class="lbl">고객명 (거점명)</span><input id="ocustomer" value="${esc(o.customer||"")}" placeholder="예: 현대자동차 논현점"></div>
+        <div style="width:130px"><span class="lbl">담당(괄호명)</span><input id="omanager" value="${esc(o.manager||"")}" placeholder="예: (김정현)"></div>
+        <div style="width:110px"><span class="lbl">관할</span><select id="ojuris">${JURIS.map(j=>`<option ${o.juris===j?"selected":""}>${j}</option>`).join("")}</select></div>
+        <div style="width:130px"><span class="lbl">상태</span><select id="ostatus">${["상담","내역서확인","요청","완료"].map(s=>`<option ${o.status===s?"selected":""}>${s}</option>`).join("")}</select></div>
+      </div>
+      <div class="fgrid" style="align-items:flex-end">
+        <div style="width:120px"><span class="lbl">기존 통신사</span><select id="ocarrier"><option value=""></option>${["KT","LGU+","SKB","기타"].map(x=>`<option ${o.otherCarrier===x?"selected":""}>${x}</option>`).join("")}</select></div>
+        <div style="width:140px"><span class="lbl">타사 요금상세내역서</span><select id="obill"><option value="N" ${o.billReceived!=="Y"?"selected":""}>미수신</option><option value="Y" ${o.billReceived==="Y"?"selected":""}>수신완료</option></select></div>
+        <div style="width:110px"><span class="lbl">확인 회선수</span><input id="olinecnt" value="${esc(o.lineCountConf||"")}" placeholder="내역서 기준"></div>
+        <div style="flex:1 1 320px;background:#F8F9FB;border:1px solid var(--bd);border-radius:8px;padding:8px 10px">
+          <span class="lbl" style="margin-bottom:5px">회선 수 입력 → 행 자동생성 (첫 전화행=대표, 나머지=종속)</span>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label style="font-size:11px;color:var(--mut)">전화 <input id="ogenTel" type="number" min="0" value="${(o.lines||[]).filter(l=>l.gubun!=="데이터"&&l.gubun!=="IPTV").length||''}" onchange="genFromCounts()" style="width:58px;margin-left:3px"></label>
+            <label style="font-size:11px;color:var(--mut)">인터넷 <input id="ogenNet" type="number" min="0" max="9" value="${(o.lines||[]).filter(l=>l.gubun==="데이터").length||''}" onchange="genFromCounts()" style="width:48px;margin-left:3px"></label>
+            <label style="font-size:11px;color:var(--mut)">IPTV <input id="ogenTv" type="number" min="0" max="9" value="${(o.lines||[]).filter(l=>l.gubun==="IPTV").length||''}" onchange="genFromCounts()" style="width:48px;margin-left:3px"></label>
+            <button class="btn-dark" style="padding:6px 12px" onclick="genFromCounts()">행 생성</button>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin:2px 0 8px">
+        <div class="ftit" style="margin:0">회선 목록 (엑셀 행과 1:1)</div><span style="flex:1"></span>
+        <button class="btn-line" style="padding:5px 10px" onclick="addOrderLine()">+ 회선 추가</button>
+      </div>
+      <div style="overflow-x:auto;border:1px solid var(--bd);border-radius:8px">
+        <table style="min-width:1160px"><thead>${th}</thead><tbody>${trs}</tbody></table>
+      </div>
+      <div style="margin:12px 0"><span class="lbl">메모</span><textarea id="omemo" rows="2" style="width:100%">${esc(o.memo||"")}</textarea></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+        ${o.id?`<button class="btn-line" style="border-color:#E86A6A;color:#A32626;margin-right:auto" onclick="delOrder()">삭제</button>`:""}
+        <button class="btn-dark" onclick="exportOrderXlsx()">📄 청약요청 양식(.xlsx) 내보내기</button>
+        <button class="btn-line" onclick="closeOrder()">닫기</button>
+        <button class="btn-red" onclick="saveOrder()">저장</button>
+      </div>
+    </div>
+  </div>`;
+}
+function readOrder(){
+  const o=curOrder;
+  o.customer=oval("ocustomer").trim(); o.manager=oval("omanager").trim(); o.juris=oval("ojuris"); o.status=oval("ostatus"); o.memo=oval("omemo");
+  o.caseType=oval("ocase")||o.caseType||"전화만"; o.otherCarrier=oval("ocarrier"); o.billReceived=oval("obill")||"N"; o.lineCountConf=oval("olinecnt").trim();
+  const map={};
+  document.querySelectorAll('#modalHost [data-li]').forEach(el=>{ const i=+el.dataset.li; (map[i]=map[i]||emptyLine())[el.dataset.k]=el.value; });
+  const idx=Object.keys(map).map(Number).sort((a,b)=>a-b);
+  o.lines = idx.length? idx.map(i=>map[i]) : [emptyLine()];
+}
+function addOrderLine(){ readOrder(); curOrder.lines.push(emptyLine()); renderOrderModal(); }
+function delOrderLine(i){ readOrder(); curOrder.lines.splice(i,1); if(!curOrder.lines.length) curOrder.lines=[emptyLine()]; renderOrderModal(); }
+function onGubunChange(i){
+  readOrder();
+  const ln=curOrder.lines[i]; if(ln){ const op=planOptions(ln.gubun); if(op.indexOf(ln.plan)<0) ln.plan=op[0]||""; }
+  renderOrderModal();
+}
+function genFromCounts(){
+  readOrder();
+  const tel=Math.max(0,parseInt(oval("ogenTel"),10)||0);
+  const net=Math.max(0,parseInt(oval("ogenNet"),10)||0);
+  const tv=Math.max(0,parseInt(oval("ogenTv"),10)||0);
+  if(tel+net+tv===0){ toast("전화/인터넷/IPTV 회선 수를 입력하세요"); return; }
+  const oldPhones=(curOrder.lines||[]).filter(l=>l.gubun!=="데이터"&&l.gubun!=="IPTV");
+  const lines=[];
+  for(let i=0;i<tel;i++){
+    const p=oldPhones[i]||{};
+    lines.push(Object.assign(emptyLine(),{
+      gubun: p.gubun||"번호이동",
+      plan: p.plan||(i===0?"실선":"정액6"),
+      hunt: p.hunt||(i===0?"대표":"종속"),
+      device: p.device||(i===0?"자급":"590G"),
+      airec: p.airec||"O",
+      origNo: p.origNo||"", mediaNo: p.mediaNo||"", ext: p.ext||"", callerid: p.callerid||"", selfMove: p.selfMove||"", daenap: p.daenap||"", ilsi: p.ilsi||""
+    }));
+  }
+  for(let i=0;i<net;i++) lines.push(Object.assign(emptyLine(),{gubun:"데이터",plan:"보안GigaBiz",wifi:"1EA"}));
+  for(let i=0;i<tv;i++) lines.push(Object.assign(emptyLine(),{gubun:"IPTV",plan:"스탠다드"}));
+  curOrder.lines=lines;
+  curOrder.caseType=(net>0||tv>0)?"인터넷IPTV":"전화만";
+  renderOrderModal();
+  toast("전화 "+tel+" · 인터넷 "+net+" · IPTV "+tv+" 회선 생성 — 원번호를 입력하세요");
+}
+function orderFromStore(id){
+  const s=(DB.stores||[]).find(x=>x.id===id); if(!s){ toast("거점을 찾지 못했습니다"); return; }
+  if(typeof closeEdit==="function") closeEdit();
+  go("order");
+  curOrder={id:"",customer:s.name||"",manager:s.owner||"",juris:s.juris||JURIS[0],storeId:s.id,caseType:"전화만",otherCarrier:s.telco||"",billReceived:"N",lineCountConf:"",status:"상담",lines:[emptyLine()],memo:s.addr?("주소: "+s.addr):""};
+  renderOrderModal();
+}
+function applyOrderToStore(order){
+  const cust=(order.customer||"").trim(); if(!cust) return null;
+  const ms=(DB.stores||[]).filter(s=>s.name && (cust.includes(s.name)||s.name.includes(cust)));
+  ms.sort((a,b)=>(b.name||"").length-(a.name||"").length);
+  const s=ms[0]; if(!s) return null;
+  const opens=(order.lines||[]).map(l=>l.openD).filter(Boolean).sort();
+  const openD=opens[opens.length-1]||s.openD||"";
+  const up=Object.assign({},s,{status:"개통완료",openD:openD||s.openD||"",updatedAt:now(),updatedBy:uName(),note:(s.note?s.note+" / ":"")+"청약완료 반영"+(openD?"("+openD+")":"")});
+  if(cloud) saveStoreCloud(up);
+  else { const i=DB.stores.findIndex(x=>x.id===s.id); if(i>-1) DB.stores[i]=up; persist(); }
+  return s.name;
+}
+function closeOrder(){ document.getElementById("modalHost").innerHTML=""; curOrder=null; }
+function saveOrder(){
+  readOrder();
+  if(!curOrder.customer){ toast("고객명(거점명)을 입력하세요"); return; }
+  curOrder.updatedAt=now(); curOrder.updatedBy=uName();
+  if(!curOrder.id){ curOrder.id=uid(); curOrder.createdAt=now(); DB.orders=DB.orders||[]; }
+  if(curOrder.status==="완료" && !curOrder.completedAt) curOrder.completedAt=now();
+  if(cloud) saveOrderCloud(curOrder);
+  else { const i=(DB.orders||[]).findIndex(o=>o.id===curOrder.id); if(i>-1) DB.orders[i]=curOrder; else (DB.orders=DB.orders||[]).push(curOrder); persist(); }
+  let sName=null;
+  if(curOrder.status==="완료") sName=applyOrderToStore(curOrder);
+  closeOrder(); render();
+  toast("청약이 저장되었습니다"+(sName?" · "+sName+" 대장 개통완료 반영":"")+(cloud&&!sName?" — 팀원 화면에 반영됨":""));
+}
+function delOrder(){
+  if(!curOrder.id) return;
+  if(!confirm("이 청약서를 삭제할까요?")) return;
+  const _id=curOrder.id;
+  if(cloud) delOrderCloud(_id); else { DB.orders=(DB.orders||[]).filter(o=>o.id!==_id); persist(); }
+  closeOrder(); render(); toast("삭제되었습니다");
+}
+function exportOrderXlsx(){
+  if(typeof XLSX==="undefined"){ toast("엑셀 라이브러리를 불러오지 못했습니다 — 인터넷 연결 확인 후 다시 시도하세요"); return; }
+  readOrder(); const o=curOrder;
+  const aoa=[OH1.slice(),OH2.slice()];
+  o.lines.forEach((ln,i)=>aoa.push(OKEYS.map(k=> k==="_cust" ? (i===0?(o.customer||""):(i===1?(o.manager||""):"")) : (ln[k]||"") )));
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws["!merges"]=OMERGES;
+  ws["!cols"]=OKEYS.map((k,c)=>({wch: c===0?16 : (OCOLS[c-1]?Math.max(6,Math.round(OCOLS[c-1].w/8)):8)}));
+  const wb=XLSX.utils.book_new();
+  const nm=(o.customer||"청약").replace(/[\/\\:*?\[\]]/g,"").slice(0,22) || "청약";
+  XLSX.utils.book_append_sheet(wb, ws, nm.slice(0,24)+" 청약요청");
+  XLSX.writeFile(wb, nm+"_청약요청_"+dnow()+".xlsx");
+  toast("청약요청 양식(.xlsx)이 저장되었습니다 — 그대로 메일 첨부하세요");
+}
+function omatchKey(lbl){
+  const s=String(lbl||"").replace(/\s/g,"");
+  if(!s) return null;
+  if(s.includes("고객")) return "_cust";
+  if(s.includes("구분")) return "gubun";
+  if(s.includes("요금")) return "plan";
+  if(s.includes("원번호")) return "origNo";
+  if(s.includes("매개")) return "mediaNo";
+  if(s.includes("자사")) return "selfMove";
+  if(s.includes("내선")) return "ext";
+  if(s.includes("단말")) return "device";
+  if(s.includes("대납")) return "daenap";
+  if(s.includes("일시")) return "ilsi";
+  if(s.toUpperCase().includes("WIFI")) return "wifi";
+  if(s.includes("AI")||s.includes("레코딩")||s.includes("심플")) return "airec";
+  if(s.includes("발신")) return "callerid";
+  if(s.includes("헌트")) return "hunt";
+  if(s.includes("부가할인")) return "discount";
+  if(s.includes("개통")) return "openD";
+  if(s.includes("결합")) return "combine";
+  return null;
+}
+function ordersFromWorkbook(wb){
+  const out=[];
+  wb.SheetNames.forEach(sn=>{
+    const ws=wb.Sheets[sn]; if(!ws) return;
+    const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+    if(aoa.length<3) return;
+    let hr=-1;
+    for(let r=0;r<Math.min(aoa.length,6);r++){ const line=(aoa[r]||[]).map(x=>String(x||"")).join("|"); if(line.includes("구분")&&line.includes("요금")){ hr=r; break; } }
+    if(hr<0) return;
+    const h1=(aoa[hr]||[]).map(x=>String(x||"").trim());
+    const h2=(aoa[hr+1]||[]).map(x=>String(x||"").trim());
+    const cols=Math.max(h1.length,h2.length);
+    const map={};
+    for(let c=0;c<cols;c++){ const key=omatchKey(h2[c]||h1[c]); if(key && map[key]===undefined) map[key]=c; }
+    if(map.gubun===undefined && map.plan===undefined) return;
+    const lines=[]; let customer="",manager="";
+    for(let r=hr+2;r<aoa.length;r++){
+      const row=aoa[r]||[];
+      const gv=String(map.gubun!==undefined?row[map.gubun]:"").trim(), pv=String(map.plan!==undefined?row[map.plan]:"").trim();
+      if(!gv && !pv) continue;
+      const ln=emptyLine();
+      OCOLS.forEach(c=>{ if(map[c.k]!==undefined) ln[c.k]=String(row[map[c.k]]==null?"":row[map[c.k]]).trim(); });
+      if(ln.hunt){ if(ln.hunt.includes("대표"))ln.hunt="대표"; else if(ln.hunt.includes("링")||ln.hunt.includes("종속"))ln.hunt="종속"; }
+      if(ln.plan){ if(ln.plan.includes("정액"))ln.plan="정액6"; else if(ln.plan.includes("실"))ln.plan="실선"; }
+      lines.push(ln);
+      if(map._cust!==undefined){ const cv=String(row[map._cust]==null?"":row[map._cust]).trim(); if(cv){ if(!customer)customer=cv; else if(!manager && cv!==customer) manager=cv; } }
+    }
+    if(!customer) customer = sn.replace(/청약\s*(완료|요청)?\s*메일?/g,"").trim() || sn;
+    if(lines.length) out.push({customer,manager,lines});
+  });
+  return out;
+}
+function importCompletion(file){
+  if(typeof XLSX==="undefined"){ toast("엑셀 라이브러리를 불러오지 못했습니다 — 인터넷 연결 확인 후 다시 시도하세요"); return; }
+  const rd=new FileReader();
+  rd.onload=e=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:"array"});
+      const parsed=ordersFromWorkbook(wb);
+      if(!parsed.length){ toast("청약 데이터를 찾지 못했습니다 — 양식(구분·요금제·원번호 헤더)을 확인하세요"); return; }
+      let up=0,cr=0; const stU=[];
+      parsed.forEach(p=>{
+        const origs=new Set(p.lines.map(l=>l.origNo).filter(x=>x&&x!=="-"));
+        let ord=(DB.orders||[]).find(o=>o.customer&&p.customer&&(o.customer.includes(p.customer)||p.customer.includes(o.customer)));
+        if(!ord) ord=(DB.orders||[]).find(o=>(o.lines||[]).some(l=>l.origNo&&origs.has(l.origNo)));
+        let saved;
+        if(ord){
+          saved=Object.assign({},ord,{lines:p.lines,status:"완료",completedAt:now(),updatedAt:now(),updatedBy:uName(),manager:ord.manager||p.manager,customer:ord.customer||p.customer});
+          if(cloud) saveOrderCloud(saved); else { const i=DB.orders.findIndex(o=>o.id===ord.id); DB.orders[i]=saved; persist(); }
+          up++;
+        } else {
+          saved={id:uid(),customer:p.customer,manager:p.manager,juris:"",storeId:"",caseType:"전화만",otherCarrier:"",billReceived:"Y",lineCountConf:"",status:"완료",lines:p.lines,memo:"",createdAt:now(),completedAt:now(),updatedAt:now(),updatedBy:uName()};
+          DB.orders=DB.orders||[]; if(cloud) saveOrderCloud(saved); else { DB.orders.push(saved); persist(); }
+          cr++;
+        }
+        const sn=applyOrderToStore(saved); if(sn) stU.push(sn);
+      });
+      tab="order"; render();
+      toast("청약완료 반영 — 업데이트 "+up+" · 신규 "+cr+(stU.length?" · 대장 개통완료 "+stU.length+"곳("+stU.slice(0,3).join(",")+(stU.length>3?"…":"")+")":""));
+    }catch(err){ console.error(err); toast("엑셀을 읽을 수 없습니다 — .xlsx 파일인지 확인하세요"); }
+  };
+  rd.readAsArrayBuffer(file);
+}
+
 /* ══════════ 편집 모달 ══════════ */
 let cur = null;
 function openEdit(id){
@@ -524,6 +867,7 @@ function openEdit(id){
       <div style="margin-bottom:16px"><span class="lbl">비고</span><textarea data-k="note" rows="2" style="width:100%">${esc(cur.note)}</textarea></div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         ${cur.id?`<button id="delBtn" style="background:#fff;border:1px solid #E86A6A;color:#A32626;padding:9px 16px;margin-right:auto" onclick="delStore()">삭제</button>`:""}
+        ${cur.id?`<button class="btn-dark" style="padding:9px 16px" onclick="orderFromStore('${cur.id}')">📋 청약서 만들기</button>`:""}
         <button class="btn-line" style="padding:9px 18px" onclick="closeEdit()">취소</button>
         <button class="btn-red" style="padding:9px 22px" onclick="saveEdit()">저장</button>
       </div>
