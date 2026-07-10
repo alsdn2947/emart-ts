@@ -6,6 +6,7 @@
 <title>블루핸즈 SKB 전환사업 현황판 (실시간 공유)</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
 :root{--red:#EA002C;--ink:#191F28;--bd:#E5E8EC;--mut:#6B7280;--faint:#9CA3AF}
 *{box-sizing:border-box}
@@ -45,6 +46,18 @@ tr.xrow td{color:var(--faint);background:#F3F4F6}
 </head>
 <body>
 <div id="toast"></div>
+<div id="authGate" style="display:none;position:fixed;inset:0;z-index:100;background:#F4F5F7;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#fff;border:1px solid var(--bd);border-radius:16px;padding:32px 28px;width:100%;max-width:360px;box-shadow:0 12px 40px rgba(0,0,0,.08)">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="width:34px;height:34px;border-radius:9px;background:var(--red);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900">BH</div>
+      <div style="font-weight:900;font-size:16px">블루핸즈 SKB 현황판</div>
+    </div>
+    <div style="font-size:12px;color:var(--mut);margin-bottom:18px">팀 공용 비밀번호로 로그인하세요</div>
+    <input id="authPw" type="password" placeholder="비밀번호" style="width:100%;margin-bottom:10px" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn-red" style="width:100%;padding:10px" onclick="doLogin()">로그인</button>
+    <div id="authMsg" style="font-size:12px;color:var(--red);margin-top:12px;min-height:16px"></div>
+  </div>
+</div>
 
 <div style="background:#fff;border-bottom:1px solid var(--bd)">
   <div style="max-width:1200px;margin:0 auto;padding:14px 20px;display:flex;flex-wrap:wrap;align-items:center;gap:12px">
@@ -62,6 +75,7 @@ tr.xrow td{color:var(--faint);background:#F3F4F6}
     <input type="file" id="fileIn" accept=".json" style="display:none" onchange="importJSON(this)">
     <button class="btn-line" onclick="exportCSV()">CSV</button>
     <span id="savedAt" style="font-size:11px;color:var(--faint)"></span>
+    <button id="logoutBtn" class="btn-line" style="display:none" onclick="doLogout()">로그아웃</button>
   </div>
   <div style="max-width:1200px;margin:0 auto;padding:0 20px;display:flex;gap:4px">
     <button class="tab on" id="tab-dash" onclick="go('dash')">대시보드</button>
@@ -112,6 +126,7 @@ function seedData(){
 /* ── 실시간 공유(Firebase) 설정 ──────────────────────────────
    같은 주소(이 페이지)를 여는 팀원은 모두 하나의 서버 데이터를
    실시간으로 함께 봅니다. 한 사람이 수정하면 즉시 모두에게 반영됩니다.
+   로그인은 팀 공용 계정(AUTH_EMAIL) 하나를 쓰며, 비밀번호만 팀이 공유합니다.
    apiKey가 비어 있으면 자동으로 '로컬 모드'(이 브라우저에만 저장)로 동작합니다.
    ──────────────────────────────────────────────────────── */
 const FIREBASE_CONFIG = {
@@ -123,10 +138,11 @@ const FIREBASE_CONFIG = {
   appId: "1:551583373128:web:add58c69a748477f16857d"
 };
 const COL_STORES = "bluehands_stores", COL_CHANGES = "bluehands_changes";
+const AUTH_EMAIL = "team@emart-ts.web";   // 팀 공용 로그인 계정 (비밀번호만 팀에 공유)
 
 const LSKEY = "bluehands_skb_v1";
 let DB, tab="dash", filt={juris:"",status:"",target:"",q:""}, page=0;
-let cloud=false, fdb=null;
+let cloud=false, fdb=null, fauth=null, rtStarted=false;
 const PAGE = 50;
 
 function setSync(state){
@@ -153,33 +169,68 @@ function persist(showT=true){
   }catch(e){ if(showT) toast("이 환경에서는 자동저장이 지원되지 않습니다 — '공유파일 내보내기'로 저장하세요"); }
 }
 
+/* ── 로그인 게이트 ── */
+function showLogin(msg){
+  const g=document.getElementById("authGate"); if(g) g.style.display="flex";
+  const lb=document.getElementById("logoutBtn"); if(lb) lb.style.display="none";
+  if(msg){ const el=document.getElementById("authMsg"); if(el) el.textContent=msg; }
+  const pw=document.getElementById("authPw"); if(pw) setTimeout(()=>pw.focus(),60);
+}
+function hideLogin(){
+  const g=document.getElementById("authGate"); if(g) g.style.display="none";
+  const lb=document.getElementById("logoutBtn"); if(lb) lb.style.display="";
+}
+async function doLogin(){
+  const el=document.getElementById("authPw"); const pw=el?el.value:"";
+  const msg=document.getElementById("authMsg");
+  if(!pw){ if(msg) msg.textContent="비밀번호를 입력하세요"; return; }
+  if(msg) msg.textContent="로그인 중…";
+  try{ await fauth.signInWithEmailAndPassword(AUTH_EMAIL, pw); }
+  catch(e){
+    console.error(e);
+    const bad = e.code==="auth/wrong-password" || e.code==="auth/invalid-credential" || e.code==="auth/invalid-login-credentials";
+    if(msg) msg.textContent = bad ? "비밀번호가 올바르지 않습니다"
+      : "로그인할 수 없습니다 — 관리자에게 Firebase 로그인 설정을 문의하세요 ("+(e.code||"오류")+")";
+  }
+}
+function doLogout(){ if(fauth) fauth.signOut(); }
+
 /* ── Firestore 실시간 저장 계층 ── */
 async function initStorage(){
   if(FIREBASE_CONFIG.apiKey && typeof firebase!=="undefined"){
     try{
       firebase.initializeApp(FIREBASE_CONFIG);
       fdb = firebase.firestore();
+      fauth = firebase.auth();
       cloud = true;
       setSync("connecting");
       DB = {stores:[], changes:[], exportedAt:"", exportedBy:""};
-      render();
-      let gotStores=false, gotChanges=false;
-      fdb.collection(COL_STORES).onSnapshot(snap=>{
-        DB.stores = snap.docs.map(d=>d.data());
-        gotStores=true; setSync("on");
-        if(gotStores&&gotChanges) render();
-      }, err=>{ console.error(err); setSync("err"); toast("실시간 서버 연결 오류 — 잠시 후 새로고침 해주세요"); });
-      fdb.collection(COL_CHANGES).onSnapshot(snap=>{
-        DB.changes = snap.docs.map(d=>d.data());
-        gotChanges=true;
-        if(gotStores&&gotChanges) render();
-      }, err=>{ console.error(err); });
-      await seedIfEmpty();
+      fauth.onAuthStateChanged(user=>{
+        if(user){ hideLogin(); startRealtime(); }
+        else { setSync("local"); showLogin(); }
+      });
       return;
     }catch(e){ console.error(e); toast("실시간 연결 실패 — 로컬 모드로 전환합니다"); }
   }
   cloud=false; setSync("local");
   load(); render();
+}
+function startRealtime(){
+  if(rtStarted) return; rtStarted=true;
+  setSync("connecting");
+  let gotStores=false, gotChanges=false;
+  fdb.collection(COL_STORES).onSnapshot(snap=>{
+    DB.stores = snap.docs.map(d=>d.data());
+    gotStores=true; setSync("on");
+    if(gotStores&&gotChanges) render();
+  }, err=>{ console.error(err); setSync("err"); toast("실시간 서버 연결 오류 — 잠시 후 새로고침 해주세요"); });
+  fdb.collection(COL_CHANGES).onSnapshot(snap=>{
+    DB.changes = snap.docs.map(d=>d.data());
+    gotChanges=true;
+    if(gotStores&&gotChanges) render();
+  }, err=>{ console.error(err); });
+  render();
+  seedIfEmpty();
 }
 async function seedIfEmpty(){
   try{
