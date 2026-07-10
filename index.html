@@ -125,6 +125,12 @@
     background:#faf9f6;transition:.15s;cursor:pointer}
   .dropzone.drag{border-color:var(--em-dark);background:#fdf3e3}
   .dropzone .big{font-size:38px;line-height:1}
+  .daychart{display:flex;align-items:flex-end;gap:6px;height:172px;overflow-x:auto;padding-top:6px}
+  .daychart .col{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:3px;min-width:26px;flex:1}
+  .daychart .cnt{font-size:11px;font-weight:700;height:14px}
+  .daychart .bar{width:72%;min-width:10px;background:var(--em-dark);border-radius:4px 4px 0 0}
+  .daychart .bar.today{background:var(--em-yellow)}
+  .daychart .day{font-size:10px;color:var(--muted);white-space:nowrap}
   @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -165,45 +171,26 @@
 <section class="tab active" id="tab-dash">
   <div class="grid g4" style="margin-bottom:16px">
     <div class="stat hl"><div class="k">전체 접수 건수</div><div class="v" id="stTotal">0<small> 건</small></div></div>
-    <div class="stat"><div class="k">이번 달 접수</div><div class="v" id="stMonth">0<small> 건</small></div></div>
+    <div class="stat"><div class="k">오늘 접수</div><div class="v" id="stToday">0<small> 건</small></div></div>
+    <div class="stat"><div class="k">최근 7일 일평균</div><div class="v" id="stAvg">0<small> 건</small></div></div>
     <div class="stat"><div class="k">미완료 (접수+처리중)</div><div class="v" id="stOpen">0<small> 건</small></div></div>
-    <div class="stat"><div class="k">중복접수 지점</div><div class="v" id="stDupStore">0<small> 개점</small></div></div>
-  </div>
-
-  <div class="grid g2">
-    <div class="card">
-      <h2>장애발생율 (디바이스 마스터 대비)</h2>
-      <div class="gauge-wrap">
-        <div class="gauge">
-          <svg width="150" height="150" viewBox="0 0 150 150">
-            <circle cx="75" cy="75" r="64" fill="none" stroke="#eeece6" stroke-width="14"/>
-            <circle id="gaugeArc" cx="75" cy="75" r="64" fill="none" stroke="var(--em-yellow)" stroke-width="14"
-              stroke-linecap="round" stroke-dasharray="402" stroke-dashoffset="402"/>
-          </svg>
-          <div class="txt"><b id="gaugeVal">0%</b><span>장애발생율</span></div>
-        </div>
-        <div style="flex:1;min-width:180px">
-          <table style="font-size:13px">
-            <tr><td style="border:none;padding:4px 0;color:var(--muted)">전체 개통 대수 (기준)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dTotalDevices">-</td></tr>
-            <tr><td style="border:none;padding:4px 0;color:var(--muted)">장애 발생 대수 (MAC 고유)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dFaultDevices">-</td></tr>
-            <tr><td style="border:none;padding:4px 0;color:var(--muted)">전체 운영 지점 수 (기준)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dTotalStores">-</td></tr>
-            <tr><td style="border:none;padding:4px 0;color:var(--muted)">장애 발생 지점 수</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dFaultStores">-</td></tr>
-            <tr><td style="border:none;padding:4px 0;color:var(--muted)">지점 기준 발생율</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dStoreRate">-</td></tr>
-          </table>
-          <div class="hint">기준값은 [기준 설정] 탭에서 변경. 기본 개통 대수는 디바이스 마스터 대수를 사용합니다.</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>증상유형별 접수 현황</h2>
-      <div id="mediaBars"><div class="empty">등록된 접수 건이 없습니다.</div></div>
-    </div>
   </div>
 
   <div class="card">
-    <h2>중복 접수 상위 지점 (2회 이상)</h2>
-    <div id="dashDup"><div class="empty">중복 접수 지점이 없습니다.</div></div>
+    <h2>일별 접수 건수 (최근 21일)</h2>
+    <div id="dailyChart" class="daychart"><div class="empty">등록된 접수 건이 없습니다.</div></div>
+    <div class="hint" id="dailyHint"></div>
+  </div>
+
+  <div class="card">
+    <h2>미완료 접수 현황 (오래된 순)</h2>
+    <div class="table-wrap" style="max-height:380px">
+      <table>
+        <thead><tr><th>접수일</th><th>경과</th><th>점포명</th><th>매체(디바이스)</th><th>증상/내용</th><th>상태</th></tr></thead>
+        <tbody id="openBody"></tbody>
+      </table>
+    </div>
+    <div class="hint">상태 배지를 클릭하면 접수 → 처리중 → 완료 순으로 바로 변경됩니다.</div>
   </div>
 </section>
 
@@ -383,17 +370,13 @@
 <!-- ─── 기준 설정 ─── -->
 <section class="tab" id="tab-set">
   <div class="card" style="max-width:560px">
-    <h2>장애발생율 산출 기준</h2>
-    <div class="grid g2" style="margin-bottom:14px">
-      <div><label>전체 개통 대수 (0=디바이스 마스터 자동)</label><input type="number" id="setDevices" min="0"></div>
-      <div><label>전체 운영 지점 수</label><input type="number" id="setStores" min="1"></div>
-    </div>
+    <h2>접수요청 기본값 (메일/카톡 생성용)</h2>
     <div class="grid g2" style="margin-bottom:14px">
       <div><label>접수요청 메일 수신처 (참고 표기)</label><input id="setMailTo" placeholder="예: skb-onad@..."></div>
       <div><label>접수자 서명 (메일 하단)</label><input id="setSign" placeholder="예: 강남Biz전문센터 ○○○"></div>
     </div>
-    <button class="btn primary" onclick="saveSettings()">기준 저장</button>
-    <div class="hint">장애발생율 = 장애 발생 대수(MAC 고유) ÷ 전체 개통 대수. 실시간 공유 모드에서는 기준값도 팀 전체에 공유됩니다.</div>
+    <button class="btn primary" onclick="saveSettings()">저장</button>
+    <div class="hint">메일/카톡 본문 생성 시 사용됩니다. 실시간 공유 모드에서는 팀 전체에 공유됩니다.</div>
   </div>
   <div class="card" style="max-width:560px">
     <h2>기존 접수이력 가져오기</h2>
@@ -422,6 +405,13 @@
   <div class="dlg-foot">
     <button class="btn primary" onclick="copyDlg()">본문 복사</button>
   </div>
+</dialog>
+
+<dialog id="warnDlg">
+  <div class="dlg-head" style="background:var(--bad)"><span>⛔ 중복 접수 경고</span>
+    <button class="btn sm" onclick="document.getElementById('warnDlg').close()" style="background:#fff">닫기</button></div>
+  <div class="dlg-body"><div id="warnMsg" style="font-size:14px;line-height:1.8"></div></div>
+  <div class="dlg-foot"><button class="btn primary" onclick="document.getElementById('warnDlg').close()">확인</button></div>
 </dialog>
 
 <div id="toast"></div>
@@ -458,7 +448,8 @@ window.dlg=dlg;
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const today=()=>new Date().toISOString().slice(0,10);
+const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+function addDays(ds,delta){const[a,b,c]=ds.split('-').map(Number);const dt=new Date(a,b-1,c);dt.setDate(dt.getDate()+delta);return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
 const newId=()=>Date.now()+'-'+Math.random().toString(36).slice(2,7);
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
 const normMac=s=>{const hex=String(s||'').toUpperCase().replace(/[^0-9A-F]/g,'').match(/[0-9A-F]{12}/);
@@ -565,6 +556,26 @@ window.showTab=function(name){
   if(name==='dev')renderDevList();
 }
 
+/* ── 중복(미완료 매체) 접수 방지 ── */
+function openDupOf(mac,svc,serial,exceptId){
+  mac=(mac||'').trim();svc=(svc||'').trim();serial=(serial||'').trim();
+  if(!mac&&!svc&&!serial)return null;
+  return items.find(x=>x.id!==exceptId&&x.status!=='완료'&&(
+    (mac&&x.mac===mac)||(svc&&x.svc===svc)||(serial&&x.serial===serial)))||null;
+}
+function warnDupPopup(dup){
+  $('warnMsg').innerHTML=
+    `<b style="color:var(--bad)">이미 접수된 매체입니다. 중복 접수 자제 요망.</b><br><br>
+     기존 접수 건이 아직 <b>${esc(dup.status)}</b> 상태입니다.<br>
+     · 접수일: <b>${esc((dup.date||'').slice(0,10))}</b><br>
+     · 점포명: <b>${esc(dup.store)||'-'}</b><br>
+     · 매체: ${esc(dup.dev||dup.deviceInfo)||'-'}<br>
+     · MAC: <span class="num">${esc(dup.mac)||'-'}</span> / 시리얼: <span class="num">${esc(dup.serial)||'-'}</span><br><br>
+     기존 건이 <b>완료</b> 처리된 후에만 새로 접수할 수 있습니다.<br>
+     (진행 상황 갱신은 접수 리스트에서 해당 건을 <b>수정</b>하세요)`;
+  document.getElementById('warnDlg').showModal();
+}
+
 /* ── MAC/점포/시리얼 자동조회·검증 ── */
 window.onMacInput=function(){
   const mac=normMac($('fMac').value);
@@ -578,6 +589,9 @@ window.onMacInput=function(){
   }else{
     setChk('macChk','warn','⚠️ 미등록 MAC — 수기 입력 (디바이스 리스트 갱신 권장)');
   }
+  // 미완료 중복 매체 실시간 경고
+  const dup=openDupOf(mac,$('fSvc').value,$('fSerial').value,editId);
+  if(dup)setChk('macChk','bad','⛔ 이미 접수된 매체 (기존 건 '+dup.status+' 상태, '+(dup.date||'').slice(0,10)+' 접수)');
   validateStore();
 }
 window.onSerialInput=function(){applySerial($('fSerial').value);validateStore();}
@@ -594,14 +608,16 @@ function validateStore(){
   const store=$('fStore').value.trim(), code=$('fCode').value.trim();
   if(!store){setChk('storeChk','idle','점포코드↔점포명 검증 대기');return}
   const codeOfName=NAME2CODE[store];
+  const openCnt=items.filter(x=>x.id!==editId&&x.status!=='완료'&&x.store===store).length;
+  const openTxt=openCnt>0?' · ⚠️ 이 지점 미완료 '+openCnt+'건':'';
   if(code){
-    if(STORES[code]===store)setChk('storeChk','ok','✅ 점포코드 '+code+' = '+store+' 일치');
+    if(STORES[code]===store)setChk('storeChk','ok','✅ 점포코드 '+code+' = '+store+' 일치'+openTxt);
     else if(STORES[code])setChk('storeChk','bad','⚠️ 코드 '+code+'는 "'+STORES[code]+'" — 입력 점포명과 불일치');
-    else setChk('storeChk','warn','⚠️ 점포코드 '+code+' 미등록 (점포 마스터에 없음)');
+    else setChk('storeChk','warn','⚠️ 점포코드 '+code+' 미등록 (점포 마스터에 없음)'+openTxt);
   }else if(codeOfName){
-    setChk('storeChk','ok','점포코드 '+codeOfName+' 확인 (시리얼 미입력)');
+    setChk('storeChk','ok','점포코드 '+codeOfName+' 확인 (시리얼 미입력)'+openTxt);
   }else{
-    setChk('storeChk','warn','⚠️ "'+store+'" 점포 마스터 미등록');
+    setChk('storeChk','warn','⚠️ "'+store+'" 점포 마스터 미등록'+openTxt);
   }
 }
 function setChk(id,cls,txt){const el=$(id);el.className='chk '+cls;el.textContent=txt;}
@@ -618,6 +634,9 @@ window.saveItem=async function(){
     action2:$('fAction2').value.trim(), note:$('fNote').value.trim()
   };
   if(!it.date||!it.store||!it.content){toast('접수일자·점포명·접수내용은 필수입니다');return}
+  // 미완료 상태의 동일 매체(서비스번호/MAC/시리얼) 존재 시 접수 차단
+  const dup=openDupOf(it.mac,it.svc,it.serial,editId);
+  if(dup){warnDupPopup(dup);return}
   if(editId){
     const old=items.find(x=>x.id===editId);
     it.id=editId; if(old&&old.created)it.created=old.created;
@@ -696,49 +715,46 @@ function getDupStores(){
   return new Set(Object.keys(m).filter(k=>m[k]>=2));
 }
 function renderDash(){
-  const total=items.length, ym=today().slice(0,7);
-  const month=items.filter(i=>(i.date||'').startsWith(ym)).length;
+  const total=items.length, t=today();
   const open=items.filter(i=>i.status!=='완료').length;
+  const todayCnt=items.filter(i=>(i.date||'').slice(0,10)===t).length;
   $('stTotal').innerHTML=total+'<small> 건</small>';
-  $('stMonth').innerHTML=month+'<small> 건</small>';
+  $('stToday').innerHTML=todayCnt+'<small> 건</small>';
   $('stOpen').innerHTML=open+'<small> 건</small>';
 
-  const keys=new Set();items.forEach(i=>keys.add(i.mac||i.serial||(i.store+'|'+i.dev)));
-  const faultDevices=keys.size;
-  const totalDevices=(settings.devices&&settings.devices>0)?settings.devices:(DEVICES.length||1);
-  const rate=totalDevices>0?(faultDevices/totalDevices*100):0;
-  $('gaugeVal').textContent=rate.toFixed(2)+'%';
-  $('gaugeArc').style.strokeDashoffset=402-402*Math.min(rate,100)/100;
-  $('gaugeArc').style.stroke=rate>=10?'var(--bad)':rate>=5?'var(--warn)':'var(--em-yellow)';
-  $('dTotalDevices').textContent=Number(totalDevices).toLocaleString()+' 대';
-  $('dFaultDevices').textContent=faultDevices.toLocaleString()+' 대';
+  // 일별 접수 집계 (최근 21일)
+  const byDay={};
+  items.forEach(i=>{const d=(i.date||'').slice(0,10);if(/^\d{4}-\d{2}-\d{2}$/.test(d))byDay[d]=(byDay[d]||0)+1;});
+  const DAYS=21, series=[];
+  for(let k=DAYS-1;k>=0;k--){const ds=addDays(t,-k);series.push({ds,cnt:byDay[ds]||0});}
+  const dmax=Math.max(1,...series.map(s=>s.cnt));
+  const last7=series.slice(-7).reduce((a,s)=>a+s.cnt,0);
+  $('stAvg').innerHTML=(last7/7).toFixed(1)+'<small> 건</small>';
+  $('dailyChart').innerHTML=total?series.map(s=>{
+    const h=Math.round(s.cnt/dmax*120)+(s.cnt>0?4:0), isT=s.ds===t, md=s.ds.slice(5).replace('-','/');
+    return `<div class="col" title="${s.ds}: ${s.cnt}건"><div class="cnt">${s.cnt||''}</div><div class="bar${isT?' today':''}" style="height:${h}px"></div><div class="day">${md}</div></div>`;
+  }).join('') : '<div class="empty">등록된 접수 건이 없습니다.</div>';
+  const activeDays=Object.keys(byDay).length||1;
+  const maxDay=Object.entries(byDay).sort((a,b)=>b[1]-a[1])[0];
+  $('dailyHint').textContent=total?`전체 일평균 ${(total/activeDays).toFixed(1)}건 · 최다 발생일 ${maxDay?maxDay[0]+' ('+maxDay[1]+'건)':'-'} · 접수된 날 ${activeDays}일`:'';
 
-  const faultStores=new Set(items.map(i=>i.store).filter(Boolean)).size;
-  $('dTotalStores').textContent=Number(settings.stores||0).toLocaleString()+' 개점';
-  $('dFaultStores').textContent=faultStores.toLocaleString()+' 개점';
-  $('dStoreRate').textContent=settings.stores>0?(faultStores/settings.stores*100).toFixed(1)+'%':'-';
-
-  const mm={};items.forEach(i=>{const k=i.symType||'기타';mm[k]=(mm[k]||0)+1});
-  const max=Math.max(1,...Object.values(mm));
-  const entries=Object.entries(mm).sort((a,b)=>b[1]-a[1]);
-  $('mediaBars').innerHTML=entries.length?entries.map(([k,v])=>`
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-      <span style="width:76px;font-size:12px;font-weight:600">${esc(k)}</span>
-      <div style="flex:1;background:#f0eee8;border-radius:6px;height:20px;overflow:hidden">
-        <div style="width:${v/max*100}%;height:100%;background:var(--em-dark);border-radius:6px;
-          display:flex;align-items:center;justify-content:flex-end;padding-right:6px">
-          <span style="color:var(--em-yellow);font-size:11px;font-weight:700">${v}</span>
-        </div></div></div>`).join('')
-    :'<div class="empty">등록된 접수 건이 없습니다.</div>';
-
-  const sm={};items.forEach(i=>sm[i.store]=(sm[i.store]||0)+1);
-  const dups=Object.entries(sm).filter(([,v])=>v>=2).sort((a,b)=>b[1]-a[1]);
-  $('stDupStore').innerHTML=dups.length+'<small> 개점</small>';
-  $('dashDup').innerHTML=dups.length?
-    '<table><thead><tr><th>지점명</th><th>접수 횟수</th></tr></thead><tbody>'+
-    dups.slice(0,5).map(([k,v])=>`<tr><td><b>${esc(k)}</b></td><td class="num">${v}회</td></tr>`).join('')+
-    '</tbody></table>'
-    :'<div class="empty">중복 접수 지점이 없습니다.</div>';
+  // 미완료 접수 현황 (오래된 순)
+  const openItems=items.filter(i=>i.status!=='완료')
+    .sort((a,b)=>String(a.date||'').localeCompare(String(b.date||'')));
+  const elapsed=d=>{if(!/^\d{4}-\d{2}-\d{2}/.test(d||''))return '-';
+    const[y,m,dd]=d.slice(0,10).split('-').map(Number);
+    const diff=Math.floor((new Date(t.split('-')[0],t.split('-')[1]-1,t.split('-')[2])-new Date(y,m-1,dd))/86400000);
+    return diff<=0?'오늘':diff+'일';};
+  $('openBody').innerHTML=openItems.length?openItems.slice(0,15).map(i=>{
+    const el=elapsed(i.date), old=el!=='오늘'&&parseInt(el)>=7;
+    return `<tr><td class="num">${esc((i.date||'').slice(0,10))}</td>
+      <td class="num" style="${old?'color:var(--bad);font-weight:700':''}">${el}</td>
+      <td><b>${esc(i.store)}</b></td><td>${esc(i.dev||i.deviceInfo)||'-'}</td>
+      <td>${esc(i.content||i.symType)||'-'}</td>
+      <td><button class="badge ${i.status}" style="border:none;cursor:pointer" title="클릭 시 상태 변경"
+        onclick="cycleStatus('${i.id}')">${i.status}</button></td></tr>`;
+  }).join('')
+    :'<tr><td colspan="6"><div class="empty">미완료 접수 건이 없습니다. 👍</div></td></tr>';
 }
 function renderDup(){
   const byStore={},byDev={};
@@ -855,7 +871,7 @@ async function parseFaultFile(file){
   }
   if(hi<0)hi=0;
   const macre=/([0-9A-Fa-f]{2}(?:[:\-][0-9A-Fa-f]{2}){5})/;
-  const existing=new Set(items.map(dedupKey)); const seen=new Set(); const out=[];
+  const existing=new Set(items.map(dedupKey)); const seen=new Set(); const openSeen=new Set(); const out=[];
   for(let i=hi+1;i<rows.length;i++){
     const r=rows[i].map(x=>x==null?'':String(x).trim());
     if(!r[0]&&!r[1]&&!r[3])continue;
@@ -875,6 +891,10 @@ async function parseFaultFile(file){
     it._dup=existing.has(key)||seen.has(key);
     it._macMatched=!!dev.mac;
     it._codeOk=code?(STORES[code]===store):null;
+    // 미완료 상태의 동일 매체(기존 이력 또는 이번 파일 내 앞선 행) → 중복접수 제외
+    const mk=[it.mac,it.svc,it.serial].filter(Boolean);
+    it._openDup=!it._dup&&(!!openDupOf(it.mac,it.svc,it.serial,null)||mk.some(k=>openSeen.has(k)));
+    if(it.status!=='완료'&&!it._dup&&!it._openDup)mk.forEach(k=>openSeen.add(k));
     seen.add(key); out.push(it);
   }
   return out;
@@ -892,19 +912,23 @@ window.handleImportInput=async function(e){const f=e.target.files[0];if(f)await 
 function renderPreview(){
   const wrap=$('upPreviewWrap');
   if(!importRows.length){wrap.style.display='none';$('upSummary').innerHTML='<div class="empty">가져올 행이 없습니다.</div>';return;}
-  const neu=importRows.filter(r=>!r._dup).length, dup=importRows.length-neu;
+  const neu=importRows.filter(r=>!r._dup&&!r._openDup).length;
+  const dup=importRows.filter(r=>r._dup).length;
+  const odup=importRows.filter(r=>r._openDup).length;
   const nomac=importRows.filter(r=>!r._macMatched).length;
   const bad=importRows.filter(r=>r._codeOk===false).length;
-  $('upSummary').innerHTML=`<div class="info">파싱 완료 · 총 <b>${importRows.length}</b>건 — 신규 <b>${neu}</b> · 중복 ${dup} · MAC미매칭 ${nomac} · 코드불일치 ${bad}</div>`;
-  $('upStat').textContent=`신규 ${neu}건 등록 대상 (중복 ${dup}건 자동 제외)`;
+  $('upSummary').innerHTML=`<div class="info">파싱 완료 · 총 <b>${importRows.length}</b>건 — 신규 <b>${neu}</b> · 중복 ${dup} · 미완료중복 ${odup} · MAC미매칭 ${nomac} · 코드불일치 ${bad}</div>`
+    +(odup?`<div class="notice">⛔ <b>미완료중복 ${odup}건</b>: 아직 완료되지 않은 동일 매체(서비스번호/MAC/시리얼)의 접수 건이 이미 있어 등록에서 제외됩니다.</div>`:'');
+  $('upStat').textContent=`신규 ${neu}건 등록 대상 (중복 ${dup}건 · 미완료중복 ${odup}건 자동 제외)`;
   $('upCommitBtn').textContent=`✔ 신규 ${neu}건 등록`;
   $('upCommitBtn').disabled=neu===0;
   wrap.style.display='block';
   $('upBody').innerHTML=importRows.map(r=>{
-    const st=r._dup?'<span class="badge dup">중복</span>':'<span class="badge 완료">신규</span>';
+    const st=r._dup?'<span class="badge dup">중복</span>'
+      :(r._openDup?'<span class="badge 접수">미완료중복</span>':'<span class="badge 완료">신규</span>');
     const chk=!r._macMatched?'<span class="chk warn">MAC미매칭</span>'
       :(r._codeOk===false?'<span class="chk bad">코드불일치</span>':'<span class="chk ok">✓ 확인</span>');
-    return `<tr style="${r._dup?'opacity:.45':''}">
+    return `<tr style="${(r._dup||r._openDup)?'opacity:.45':''}">
       <td>${st}</td><td class="num">${esc(r.date)}</td><td class="num">${esc(r.mac)||'-'}</td>
       <td><b>${esc(r.store)||'-'}</b></td><td class="num">${esc(r.serial)||'-'}</td>
       <td>${esc(r.dev)||esc(r.deviceInfo)||'-'}</td><td>${esc(r.content)||esc(r.symType)}</td><td>${chk}</td></tr>`;
@@ -912,13 +936,13 @@ function renderPreview(){
 }
 window.cancelImport=function(){importRows=[];$('upPreviewWrap').style.display='none';$('upSummary').innerHTML='';toast('취소되었습니다');}
 window.commitImport=async function(){
-  const neu=importRows.filter(r=>!r._dup);
+  const neu=importRows.filter(r=>!r._dup&&!r._openDup);
   if(!neu.length){toast('등록할 신규 건이 없습니다');return;}
   toast('등록 중...');
   let n=0;
   for(const r of neu){
     const it=Object.assign({},r);
-    delete it._dup;delete it._macMatched;delete it._codeOk;
+    delete it._dup;delete it._macMatched;delete it._codeOk;delete it._openDup;
     it.id=newId();it.created=new Date().toISOString();it.source='엑셀업로드';
     await dbPut(it);n++;
   }
@@ -1007,14 +1031,11 @@ window.copyDlg=function(){
 
 /* ── 설정 ── */
 function loadSettingsForm(){
-  $('setDevices').value=settings.devices||0;$('setStores').value=settings.stores;
-  $('setMailTo').value=settings.mailTo;$('setSign').value=settings.sign;
+  $('setMailTo').value=settings.mailTo||'';$('setSign').value=settings.sign||'';
 }
 window.saveSettings=async function(){
-  settings.devices=parseInt($('setDevices').value)||0;
-  settings.stores=parseInt($('setStores').value)||1;
   settings.mailTo=$('setMailTo').value.trim();settings.sign=$('setSign').value.trim();
-  await dbPutSettings();toast('기준이 저장되었습니다'+(cloud?' — 팀 전체 적용':''));
+  await dbPutSettings();toast('저장되었습니다'+(cloud?' — 팀 전체 적용':''));
 }
 window.clearAll=async function(){
   if(!confirm('모든 접수 데이터를 삭제합니다.'+(cloud?' 팀원 모두의 화면에서도 삭제됩니다.':'')+' 계속할까요?'))return;
