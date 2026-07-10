@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>이마트 On-Ad 장애접수 관리 (실시간 공유)</title>
+<title>이마트 On-Ad 장애접수·이력관리 (실시간 공유)</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
   :root{
@@ -25,6 +25,7 @@
   #syncBadge{font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;background:#4a453a;color:#cfc9ba}
   #syncBadge.on{background:var(--em-yellow);color:var(--em-dark)}
   #syncBadge.err{background:var(--bad);color:#fff}
+  #devBadge{font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;background:#4a453a;color:#cfc9ba}
 
   nav{background:#fff;border-bottom:1px solid var(--line);display:flex;padding:0 22px;overflow-x:auto}
   nav button{background:none;border:none;padding:12px 16px;font-size:14px;font-weight:600;color:var(--muted);
@@ -41,8 +42,9 @@
   .card h2::before{content:"";width:8px;height:8px;background:var(--em-yellow);border-radius:2px;display:inline-block}
   .grid{display:grid;gap:12px}
   .g4{grid-template-columns:repeat(4,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
   .g2{grid-template-columns:repeat(2,1fr)}
-  @media(max-width:860px){.g4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:860px){.g4{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr}}
   @media(max-width:560px){.g4,.g2{grid-template-columns:1fr}}
 
   .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
@@ -57,6 +59,7 @@
   input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;
     font-size:14px;font-family:inherit;background:#fff;color:var(--ink)}
   input:focus,select:focus,textarea:focus{outline:2px solid var(--em-yellow);border-color:var(--em-dark)}
+  input[readonly]{background:#f4f2ec;color:#55524a}
   textarea{resize:vertical;min-height:60px}
 
   .btn{padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--ink);
@@ -83,9 +86,15 @@
   .badge.완료{background:#e8f4ec;color:var(--ok)}
   .badge.dup{background:var(--em-yellow);color:var(--em-dark)}
 
+  .chk{font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;display:inline-block;margin-top:4px}
+  .chk.ok{background:#e8f4ec;color:var(--ok)}
+  .chk.warn{background:#fdf3e3;color:var(--warn)}
+  .chk.bad{background:#fdeeee;color:var(--bad)}
+  .chk.idle{background:#f0eee8;color:var(--muted)}
+
   .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
   .toolbar input[type=search]{max-width:240px}
-  .toolbar select{max-width:130px}
+  .toolbar select{max-width:150px}
   .toolbar .spacer{flex:1}
 
   .gauge-wrap{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
@@ -110,6 +119,12 @@
   #toast.show{opacity:1}
   .hint{font-size:12px;color:var(--muted);margin-top:6px}
   .notice{background:#fdf3e3;border:1px solid #f0dcb0;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:16px}
+  .info{background:#eef4fb;border:1px solid #cfe0f2;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:16px}
+  .dropzone{border:2px dashed var(--line);border-radius:14px;padding:34px 20px;text-align:center;
+    display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;
+    background:#faf9f6;transition:.15s;cursor:pointer}
+  .dropzone.drag{border-color:var(--em-dark);background:#fdf3e3}
+  .dropzone .big{font-size:38px;line-height:1}
   @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -118,23 +133,24 @@
 <header>
   <div class="logo">e</div>
   <div>
-    <h1>이마트 On-Ad 장애접수 관리</h1>
-    <div class="sub">실시간 공유 버전 · 팀원 모두 동일한 리스트를 봅니다</div>
+    <h1>이마트 On-Ad 장애접수·이력관리</h1>
+    <div class="sub">실시간 공유 버전 · MAC 자동조회 · 점포코드 검증</div>
   </div>
   <div class="right">
+    <span id="devBadge">디바이스 0대</span>
     <span id="syncBadge">● 로컬 모드</span>
     <button class="btn sm" onclick="exportJSON()">JSON 백업</button>
-    <button class="btn sm" onclick="document.getElementById('importFile').click()">JSON 가져오기</button>
-    <button class="btn sm" onclick="exportCSV()">Excel(CSV) 다운로드</button>
-    <input type="file" id="importFile" accept=".json" hidden onchange="importJSON(event)">
+    <button class="btn sm" onclick="exportCSV()">Excel(CSV)</button>
   </div>
 </header>
 
 <nav>
   <button class="active" data-tab="dash" onclick="showTab('dash')">대시보드</button>
   <button data-tab="reg" onclick="showTab('reg')">장애 접수 등록</button>
+  <button data-tab="up" onclick="showTab('up')">엑셀 일괄접수</button>
   <button data-tab="list" onclick="showTab('list')">접수 리스트</button>
   <button data-tab="dup" onclick="showTab('dup')">중복·재발 분석</button>
+  <button data-tab="dev" onclick="showTab('dev')">디바이스 관리</button>
   <button data-tab="set" onclick="showTab('set')">기준 설정</button>
 </nav>
 
@@ -142,7 +158,7 @@
 
 <div class="notice" id="localNotice" style="display:none">
   ⚠️ 현재 <b>로컬 모드</b>로 동작 중입니다 (데이터가 이 브라우저에만 저장됨).
-  실시간 팀 공유를 사용하려면 파일 하단 안내에 따라 <b>Firebase 설정값</b>을 입력한 뒤 다시 열어주세요.
+  실시간 팀 공유가 안 되면 Firestore 보안 규칙/설정값을 확인하세요.
 </div>
 
 <!-- ─── 대시보드 ─── -->
@@ -156,7 +172,7 @@
 
   <div class="grid g2">
     <div class="card">
-      <h2>장애발생율 (전체 개통 대비)</h2>
+      <h2>장애발생율 (디바이스 마스터 대비)</h2>
       <div class="gauge-wrap">
         <div class="gauge">
           <svg width="150" height="150" viewBox="0 0 150 150">
@@ -169,18 +185,18 @@
         <div style="flex:1;min-width:180px">
           <table style="font-size:13px">
             <tr><td style="border:none;padding:4px 0;color:var(--muted)">전체 개통 대수 (기준)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dTotalDevices">-</td></tr>
-            <tr><td style="border:none;padding:4px 0;color:var(--muted)">장애 발생 대수 (시리얼 기준)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dFaultDevices">-</td></tr>
+            <tr><td style="border:none;padding:4px 0;color:var(--muted)">장애 발생 대수 (MAC 고유)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dFaultDevices">-</td></tr>
             <tr><td style="border:none;padding:4px 0;color:var(--muted)">전체 운영 지점 수 (기준)</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dTotalStores">-</td></tr>
             <tr><td style="border:none;padding:4px 0;color:var(--muted)">장애 발생 지점 수</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dFaultStores">-</td></tr>
             <tr><td style="border:none;padding:4px 0;color:var(--muted)">지점 기준 발생율</td><td style="border:none;padding:4px 0;text-align:right" class="num" id="dStoreRate">-</td></tr>
           </table>
-          <div class="hint">기준값은 [기준 설정] 탭에서 변경할 수 있습니다. (팀 전체에 공유 적용)</div>
+          <div class="hint">기준값은 [기준 설정] 탭에서 변경. 기본 개통 대수는 디바이스 마스터 대수를 사용합니다.</div>
         </div>
       </div>
     </div>
 
     <div class="card">
-      <h2>매체별 접수 현황</h2>
+      <h2>증상유형별 접수 현황</h2>
       <div id="mediaBars"><div class="empty">등록된 접수 건이 없습니다.</div></div>
     </div>
   </div>
@@ -195,38 +211,90 @@
 <section class="tab" id="tab-reg">
   <div class="card">
     <h2>신규 장애 접수 <span id="editingLabel" style="color:var(--warn);font-size:12px"></span></h2>
-    <div class="grid g4" style="margin-bottom:12px">
-      <div><label>접수일자 *</label><input type="date" id="fDate"></div>
-      <div><label>지점명 *</label><input id="fStore" placeholder="예: 이마트 미아점" list="storeList"><datalist id="storeList"></datalist></div>
-      <div><label>서비스번호</label><input id="fSvc" placeholder="예: 1523xxxxxxx"></div>
-      <div><label>시리얼넘버</label><input id="fSerial" placeholder="장비 S/N"></div>
+    <div class="info" style="margin-bottom:14px">
+      💡 <b>MAC번호만 입력</b>하면 디바이스 리스트에서 점포명·디바이스명·시리얼(점포코드+셋톱인덱스)이 자동으로 채워지고,
+      점포코드↔점포명 일치 여부까지 검증됩니다.
     </div>
     <div class="grid g4" style="margin-bottom:12px">
-      <div><label>매체 *</label>
-        <select id="fMedia">
-          <option>사이니지</option><option>비디오월</option><option>키오스크</option>
-          <option>셋톱박스</option><option>LTE회선</option><option>기타</option>
+      <div><label>접수일자 *</label><input type="date" id="fDate"></div>
+      <div>
+        <label>MAC번호 *</label>
+        <input id="fMac" placeholder="30:EB:25:.. 붙여넣기" oninput="onMacInput()">
+        <div id="macChk" class="chk idle">디바이스 조회 대기</div>
+      </div>
+      <div><label>서비스관리번호 (자동)</label><input id="fSvc" readonly placeholder="MAC 조회 시 자동"></div>
+      <div><label>디바이스명 (자동)</label><input id="fDev" readonly placeholder="MAC 조회 시 자동"></div>
+    </div>
+    <div class="grid g4" style="margin-bottom:12px">
+      <div><label>점포명 *</label><input id="fStore" placeholder="예: 사상점" list="storeList" oninput="onStoreInput()"><datalist id="storeList"></datalist></div>
+      <div><label>시리얼번호 (7자리)</label><input id="fSerial" maxlength="7" placeholder="점포코드4+인덱스3" oninput="onSerialInput()"></div>
+      <div><label>점포코드 (4자리)</label><input id="fCode" readonly placeholder="자동"></div>
+      <div><label>셋톱 인덱스 (3자리)</label><input id="fIdx" readonly placeholder="자동"></div>
+    </div>
+    <div style="margin-bottom:6px"><div id="storeChk" class="chk idle">점포코드↔점포명 검증 대기</div></div>
+    <div class="grid g4" style="margin-bottom:12px">
+      <div><label>증상유형</label>
+        <select id="fSymType">
+          <option>오류</option><option>에러</option><option>로고</option><option>화면멈춤</option>
+          <option>블랙아웃</option><option>재부팅</option><option>통신불량</option><option>기타</option>
         </select>
       </div>
-      <div><label>상세위치</label><input id="fLoc" placeholder="예: 1층 신선매장 입구"></div>
       <div><label>처리상태</label>
         <select id="fStatus"><option>접수</option><option>처리중</option><option>완료</option></select>
       </div>
       <div><label>접수경로</label>
         <select id="fChannel"><option>메일</option><option>카톡</option><option>유선</option><option>기타</option></select>
       </div>
+      <div><label>비고</label><input id="fNote" placeholder="선택 입력"></div>
     </div>
-    <div style="margin-bottom:14px"><label>증상 *</label>
-      <textarea id="fSymptom" placeholder="예: 화면 블랙아웃, 전원 재부팅 후에도 미표출"></textarea>
+    <div style="margin-bottom:12px"><label>접수내용 *</label>
+      <textarea id="fContent" placeholder="예: 화면 블랙아웃, 전원 재부팅 후에도 미표출"></textarea>
+    </div>
+    <div class="grid g2" style="margin-bottom:14px">
+      <div><label>1차 조치 (결과)</label><textarea id="fAction1" placeholder="디바이스/앱/아쿠아 등 조치 결과"></textarea></div>
+      <div><label>2차 조치 (일자·결과)</label><textarea id="fAction2" placeholder="추가 조치 이력"></textarea></div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn primary" onclick="saveItem()">저장</button>
       <button class="btn" onclick="resetForm()">초기화</button>
       <span style="flex:1"></span>
-      <button class="btn dark" onclick="genMail()">📧 접수요청 메일 본문 생성</button>
-      <button class="btn dark" onclick="genKakao()">💬 카톡 간단소통 메시지 생성</button>
+      <button class="btn dark" onclick="genMail()">📧 접수요청 메일 본문</button>
+      <button class="btn dark" onclick="genKakao()">💬 카톡 간단소통 메시지</button>
     </div>
-    <div class="hint">* 저장 즉시 팀원 모두의 화면에 실시간 반영됩니다. 메일로 정식 접수 후 카톡 간단소통 메시지를 함께 활용하세요.</div>
+    <div class="hint">* 저장 즉시 팀원 모두의 화면에 실시간 반영됩니다.</div>
+  </div>
+</section>
+
+<!-- ─── 엑셀 일괄접수 ─── -->
+<section class="tab" id="tab-up">
+  <div class="card">
+    <h2>엑셀 일괄접수 (당일 장애 건 업로드)</h2>
+    <div class="info">
+      💡 장애접수 엑셀(<b>확인일자·셋탑mac·매장명·장치정보·1·2차 조치</b> 열)을 드래그&드롭하거나 선택하면,
+      <b>MAC 기준으로 점포·시리얼·디바이스명이 자동 매칭</b>되어 접수 이력으로 등록됩니다.
+      매장명이 비어 있어도 MAC·장치정보에서 점포를 자동 유추합니다.
+      등록 전 미리보기로 확인할 수 있고, <b>이미 등록된 건은 자동 제외</b>됩니다.
+    </div>
+    <div id="dropzone" class="dropzone" onclick="document.getElementById('upFile').click()">
+      <div class="big">📥</div>
+      <div><b>여기로 엑셀 파일을 끌어다 놓으세요</b></div>
+      <div class="hint">또는 클릭해서 파일 선택 (.xlsx)</div>
+      <input type="file" id="upFile" accept=".xlsx,.xls" hidden onchange="handleImportInput(event)">
+    </div>
+    <div id="upSummary" style="margin-top:14px"></div>
+    <div id="upPreviewWrap" style="display:none">
+      <div class="toolbar" style="margin-top:12px">
+        <b id="upStat"></b><span class="spacer"></span>
+        <button class="btn" onclick="cancelImport()">취소</button>
+        <button class="btn primary" id="upCommitBtn" onclick="commitImport()">신규 건 등록</button>
+      </div>
+      <div class="table-wrap" style="max-height:460px">
+        <table>
+          <thead><tr><th>상태</th><th>접수일</th><th>MAC</th><th>점포명</th><th>시리얼</th><th>디바이스명</th><th>증상/내용</th><th>검증</th></tr></thead>
+          <tbody id="upBody"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -235,13 +303,13 @@
   <div class="card">
     <h2>장애접수 리스트</h2>
     <div class="toolbar">
-      <input type="search" id="q" placeholder="지점명·시리얼·증상 검색" oninput="renderList()">
+      <input type="search" id="q" placeholder="지점명·MAC·시리얼·내용 검색" oninput="renderList()">
       <select id="fltStatus" onchange="renderList()">
         <option value="">상태 전체</option><option>접수</option><option>처리중</option><option>완료</option>
       </select>
-      <select id="fltMedia" onchange="renderList()">
-        <option value="">매체 전체</option><option>사이니지</option><option>비디오월</option>
-        <option>키오스크</option><option>셋톱박스</option><option>LTE회선</option><option>기타</option>
+      <select id="fltSym" onchange="renderList()">
+        <option value="">증상 전체</option><option>오류</option><option>에러</option><option>로고</option>
+        <option>화면멈춤</option><option>블랙아웃</option><option>재부팅</option><option>통신불량</option><option>기타</option>
       </select>
       <span class="spacer"></span>
       <span class="hint" id="listCount"></span>
@@ -249,8 +317,8 @@
     <div class="table-wrap">
       <table>
         <thead><tr>
-          <th>NO</th><th>접수일자</th><th>지점명</th><th>서비스번호</th><th>시리얼넘버</th>
-          <th>매체</th><th>상세위치</th><th>증상</th><th>상태</th><th>경로</th><th>관리</th>
+          <th>NO</th><th>접수일</th><th>MAC</th><th>점포명</th><th>시리얼</th><th>디바이스명</th>
+          <th>증상</th><th>접수내용</th><th>상태</th><th>경로</th><th>관리</th>
         </tr></thead>
         <tbody id="listBody"></tbody>
       </table>
@@ -265,20 +333,49 @@
       <h2>지점별 중복 접수 (2회 이상)</h2>
       <div class="table-wrap" style="max-height:420px">
         <table>
-          <thead><tr><th>지점명</th><th>접수 횟수</th><th>최근 접수일</th><th>주요 매체</th></tr></thead>
+          <thead><tr><th>지점명</th><th>접수 횟수</th><th>최근 접수일</th><th>주요 증상</th></tr></thead>
           <tbody id="dupStoreBody"></tbody>
         </table>
       </div>
     </div>
     <div class="card">
-      <h2>동일 장비 재발 (시리얼 2회 이상)</h2>
+      <h2>동일 장비 재발 (MAC/시리얼 2회 이상)</h2>
       <div class="table-wrap" style="max-height:420px">
         <table>
-          <thead><tr><th>시리얼넘버</th><th>지점명</th><th>재발 횟수</th><th>최근 접수일</th></tr></thead>
+          <thead><tr><th>시리얼/MAC</th><th>지점명</th><th>재발 횟수</th><th>최근 접수일</th></tr></thead>
           <tbody id="dupSerialBody"></tbody>
         </table>
       </div>
-      <div class="hint">동일 시리얼 재발 건은 장비 교체 검토 대상으로 관리하세요.</div>
+      <div class="hint">동일 장비 재발 건은 장비 교체 검토 대상으로 관리하세요.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── 디바이스 관리 ─── -->
+<section class="tab" id="tab-dev">
+  <div class="card">
+    <h2>디바이스 관리 리스트 (백데이터)</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+      CMS(셋톱박스 서버통신·광고편성)에서 추출한 <b>디바이스 관리 엑셀</b>을 그대로 업로드하세요.
+      MAC 기준으로 점포명·디바이스명·시리얼을 자동 매칭하는 기준 데이터가 됩니다.
+      업로드하면 <b id="devMode">로컬</b> 저장되며, 실시간 공유 모드에서는 팀원 모두에게 반영됩니다.
+    </p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <button class="btn primary" onclick="document.getElementById('devFile').click()">📤 디바이스 엑셀(xlsx) 업로드</button>
+      <input type="file" id="devFile" accept=".xlsx,.xls" hidden onchange="importDeviceXlsx(event)">
+      <button class="btn" onclick="reloadBundledDevices()">기본 데이터 다시 불러오기</button>
+      <span class="hint" id="devInfo"></span>
+    </div>
+    <div class="toolbar" style="margin-top:12px">
+      <input type="search" id="devQ" placeholder="MAC·점포·디바이스명·시리얼 검색" oninput="renderDevList()">
+      <span class="spacer"></span>
+      <span class="hint" id="devCount"></span>
+    </div>
+    <div class="table-wrap" style="max-height:460px">
+      <table>
+        <thead><tr><th>점포명</th><th>디바이스명</th><th>시리얼</th><th>점포코드</th><th>인덱스</th><th>MAC</th><th>서비스관리번호</th></tr></thead>
+        <tbody id="devBody"></tbody>
+      </table>
     </div>
   </div>
 </section>
@@ -288,7 +385,7 @@
   <div class="card" style="max-width:560px">
     <h2>장애발생율 산출 기준</h2>
     <div class="grid g2" style="margin-bottom:14px">
-      <div><label>전체 개통 대수 (장비 기준)</label><input type="number" id="setDevices" min="1"></div>
+      <div><label>전체 개통 대수 (0=디바이스 마스터 자동)</label><input type="number" id="setDevices" min="0"></div>
       <div><label>전체 운영 지점 수</label><input type="number" id="setStores" min="1"></div>
     </div>
     <div class="grid g2" style="margin-bottom:14px">
@@ -296,15 +393,24 @@
       <div><label>접수자 서명 (메일 하단)</label><input id="setSign" placeholder="예: 강남Biz전문센터 ○○○"></div>
     </div>
     <button class="btn primary" onclick="saveSettings()">기준 저장</button>
-    <div class="hint">장애발생율 = 장애 발생 대수(시리얼 고유 건수) ÷ 전체 개통 대수. 실시간 공유 모드에서는 기준값도 팀 전체에 공유됩니다.</div>
+    <div class="hint">장애발생율 = 장애 발생 대수(MAC 고유) ÷ 전체 개통 대수. 실시간 공유 모드에서는 기준값도 팀 전체에 공유됩니다.</div>
+  </div>
+  <div class="card" style="max-width:560px">
+    <h2>기존 접수이력 가져오기</h2>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+      기존 <b>장애접수 엑셀(xlsx)</b>을 그대로 올리면 자동 정규화되어 불러옵니다.
+      (확인일자·셋탑mac·매장명·장치정보·증상·조치 열 인식) 이미 있는 건은 중복 제외됩니다.
+      MAC이 디바이스 리스트와 매칭되면 시리얼·서비스관리번호가 함께 채워집니다.
+    </p>
+    <button class="btn" onclick="document.getElementById('legacyFile').click()">📥 기존 장애접수 엑셀 가져오기</button>
+    <input type="file" id="legacyFile" accept=".xlsx,.xls" hidden onchange="handleImportInput(event)">
+    <div class="hint">업로드하면 [엑셀 일괄접수] 탭에서 미리보기 후 등록됩니다. (당일 건도 동일 방식)</div>
+    <button class="btn sm" onclick="document.getElementById('importFile').click()">JSON 가져오기</button>
+    <input type="file" id="importFile" accept=".json" hidden onchange="importJSON(event)">
   </div>
   <div class="card" style="max-width:560px">
     <h2>데이터 관리</h2>
-    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
-      실시간 공유 모드에서는 모든 데이터가 Firebase(Firestore)에 저장되어 팀원 모두에게 즉시 반영됩니다.
-      JSON 백업은 보관용/타 시스템 이관용으로 활용하세요.
-    </p>
-    <button class="btn danger" onclick="clearAll()">전체 데이터 삭제 (팀 공유 데이터 포함)</button>
+    <button class="btn danger" onclick="clearAll()">전체 접수 데이터 삭제 (팀 공유 포함)</button>
   </div>
 </section>
 
@@ -322,32 +428,11 @@
 
 <script type="module">
 /* ============================================================
-   ★★★ 실시간 공유 설정 (여기만 수정하면 됩니다) ★★★
-
-   1. https://console.firebase.google.com 접속 → 프로젝트 만들기
-   2. 좌측 [빌드 > Firestore Database] → 데이터베이스 만들기
-      - 위치: asia-northeast3 (서울)
-      - 보안 규칙: "테스트 모드"로 시작 (아래 4번 참고)
-   3. 프로젝트 설정(톱니바퀴) → 일반 → 내 앱 → 웹 앱(</>) 추가
-      → 표시되는 firebaseConfig 값을 아래에 그대로 붙여넣기
-   4. Firestore > 규칙 탭에서 아래로 교체 후 게시:
-        rules_version = '2';
-        service cloud.firestore {
-          match /databases/{database}/documents {
-            match /{document=**} {
-              allow read, write: if true;
-            }
-          }
-        }
-      (테스트 모드는 30일 후 만료되므로 위 규칙으로 교체 필수)
-   5. 이 파일을 팀원들에게 배포 (카톡/메일/사내망)
-      → 같은 설정값이 들어간 파일을 여는 사람은 모두
-        동일한 리스트를 실시간으로 보게 됩니다.
-
-   ※ apiKey가 비어 있으면 자동으로 "로컬 모드"(개인 저장)로 동작합니다.
+   ★ 실시간 공유 설정 (Firebase Firestore)
+   apiKey가 비어 있으면 자동으로 "로컬 모드"로 동작합니다.
    ============================================================ */
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyBCDjn1Un9H3vm9X8JIw6uilutqXwtwiLg",                  // ← 여기에 붙여넣기
+  apiKey: "AIzaSyBCDjn1Un9H3vm9X8JIw6uilutqXwtwiLg",
   authDomain: "emart-ts.firebaseapp.com",
   projectId: "emart-ts",
   storageBucket: "emart-ts.firebasestorage.app",
@@ -356,10 +441,18 @@ const FIREBASE_CONFIG = {
 };
 /* ============================================================ */
 
-const LS_KEY='emart_fault_list_v1', LS_SET='emart_fault_settings_v1';
-const DEFAULT_SET={devices:2243,stores:102,mailTo:'',sign:''};
+const LS_KEY='emart_fault_v2', LS_SET='emart_set_v2', LS_DEV='emart_devmaster_v2';
+const DEFAULT_SET={devices:0,stores:132,mailTo:'',sign:''};
 let items=[], settings=Object.assign({},DEFAULT_SET);
 let editId=null, cloud=false, db=null, fs=null;
+
+/* 마스터 데이터 */
+/* 점포코드 마스터 (휴점 점포 현황 기준, 132개 · 앱 내장) */
+const STORES_DATA={"1077":"검단점","1098":"계양점","1135":"과천점","1112":"광명소하점","1012":"구로점","1131":"김포한강점","1023":"동인천점","1104":"목동점","1998":"부천점","1015":"산본점","1083":"신도림점","1013":"신월점","1044":"안산고잔점","1999":"안양점","1042":"연수점","1106":"영등포점","1137":"의왕점","1097":"중동점","1099":"평촌점","1123":"마포점","1093":"미아점","1108":"수색점","1133":"스타필드마켓 일산점","1139":"신촌점","1087":"여의도점","1090":"왕십리점","1060":"용산점","1033":"은평점","1002":"일산점","1080":"자양점","1089":"청계천점","1119":"파주운정점","1057":"파주점","1130":"풍산점","1125":"하월곡점","1096":"화정점","1118":"가든5점","1142":"고덕점","1069":"남양주점","1086":"다산점","1041":"명일점","1117":"묵동점","1129":"별내점","1003":"분당점","1110":"성남점","1029":"수서점","1062":"양재점","1055":"양주점","1095":"역삼점","1059":"월계점","1128":"의정부점","1115":"진접점","1001":"창동점","1016":"천호점","1111":"포천점","1088":"하남점","1107":"경기광주점","1134":"광교점","1075":"동백점","1094":"보라점","1067":"서수원점","1030":"수원점","1047":"수지점","1085":"스타필드마켓 동탄점","1068":"스타필드마켓 죽전점","1092":"안성점","1084":"여주점","1070":"오산점","1071":"용인점","1020":"이천점","1032":"평택점","1126":"화성봉담점","1105":"흥덕점","1043":"강릉점","1039":"구미점","1007":"김천점","1122":"동구미점","1052":"동해점","1024":"만촌점","1058":"반야월점","1081":"상주점","1014":"성서점","1049":"속초점","1141":"수성점","1074":"스타필드마켓 경산점","1061":"안동점","1053":"영천점","1011":"원주점","1027":"월배점","1109":"제천점","1066":"춘천점","1031":"충주점","1037":"칠성점","1079":"태백점","1054":"광산점","1138":"광주점","1025":"군산점","1005":"남원점","1121":"대전터미널점","1038":"둔산점","1022":"목포점","1091":"보령점","1082":"봉선점","1124":"서산점","1132":"세종점","1065":"순천점","1078":"아산점","1034":"여수점","1076":"익산점","1010":"전주점","1127":"천안서북점","1028":"천안점","1114":"천안터미널점","1009":"청주점","1046":"금정점","1136":"김해점","1101":"마산점","1045":"문현점","1050":"사상점","1116":"사천점","1073":"서귀포점","1048":"신제주점","1056":"양산점","1036":"연제점","1051":"울산점","1004":"제주점","1021":"진주점","1040":"창원점","1064":"통영점","1102":"포항이동점","1035":"포항점","1018":"해운대점"};
+let STORES={};                 // code -> name
+let NAME2CODE={};              // name -> code
+let DEVICES=[];                // [{mac,store,dev,svc,serial,code,idx}]
+let MAC_INDEX=new Map();       // mac -> device
 const dlg=document.getElementById('dlg');
 window.dlg=dlg;
 
@@ -367,47 +460,78 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const today=()=>new Date().toISOString().slice(0,10);
 const newId=()=>Date.now()+'-'+Math.random().toString(36).slice(2,7);
-function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200)}
+const normMac=s=>{const hex=String(s||'').toUpperCase().replace(/[^0-9A-F]/g,'').match(/[0-9A-F]{12}/);
+  return hex?hex[0].match(/.{2}/g).join(':'):'';};
 
-/* ── 저장 계층 (로컬 ↔ Firestore 자동 전환) ── */
+/* ── 마스터 인덱스 구축 ── */
+function buildDeviceIndex(){
+  MAC_INDEX=new Map();
+  DEVICES.forEach(d=>{if(d.mac)MAC_INDEX.set(d.mac,d)});
+  $('devBadge').textContent='디바이스 '+DEVICES.length.toLocaleString()+'대';
+  $('devInfo').textContent='현재 '+DEVICES.length.toLocaleString()+'대 로딩됨';
+  $('devMode').textContent=cloud?'팀 공유':'로컬';
+}
+function buildStoreIndex(){
+  NAME2CODE={};
+  Object.entries(STORES).forEach(([c,n])=>{NAME2CODE[n]=c});
+}
+async function loadBundled(){
+  // 점포 마스터는 앱에 내장
+  STORES=Object.assign({},STORES_DATA); buildStoreIndex();
+  // 디바이스 마스터는 선택적(있으면 초기 로드, 없으면 업로드 대기)
+  try{
+    if(!DEVICES.length){
+      const d=await fetch('data-devices.json').then(r=>r.ok?r.json():null);
+      if(d&&d.devices&&d.devices.length){DEVICES=d.devices;buildDeviceIndex();}
+    }
+  }catch(e){/* 디바이스 기본파일 없음 — 업로드로 채웁니다 */}
+}
+window.reloadBundledDevices=async function(){
+  try{
+    const d=await fetch('data-devices.json').then(r=>r.json());
+    DEVICES=d.devices||[];buildDeviceIndex();renderDevList();renderAll();
+    if(cloud)await pushDeviceMaster(DEVICES);
+    toast('기본 디바이스 데이터를 다시 불러왔습니다');
+  }catch(e){toast('기본 데이터 로드 실패')}
+}
+
+/* ── 저장 계층 (로컬 ↔ Firestore) ── */
 async function initStorage(){
+  await loadBundled();
+  const cachedDev=JSON.parse(localStorage.getItem(LS_DEV)||'null');
+  if(cachedDev&&cachedDev.length){DEVICES=cachedDev;buildDeviceIndex();}
+
   if(FIREBASE_CONFIG.apiKey){
     try{
       const appMod=await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
       fs=await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js');
       const app=appMod.initializeApp(FIREBASE_CONFIG);
-      db=fs.getFirestore(app);
-      cloud=true;
-      $('syncBadge').textContent='● 실시간 공유 중';
-      $('syncBadge').classList.add('on');
+      db=fs.getFirestore(app); cloud=true;
+      $('syncBadge').textContent='● 실시간 공유 중'; $('syncBadge').classList.add('on');
+      $('devMode').textContent='팀 공유';
 
-      // 접수 리스트 실시간 구독
-      fs.onSnapshot(fs.collection(db,'faults'),snap=>{
-        items=snap.docs.map(d=>d.data());
-        renderAll();
-      },err=>{
-        console.error(err);
-        $('syncBadge').textContent='● 연결 오류';
-        $('syncBadge').classList.add('err');
-        toast('Firestore 연결 오류 — 보안 규칙/설정값을 확인하세요');
-      });
-      // 기준 설정 실시간 구독
+      fs.onSnapshot(fs.collection(db,'faults'),snap=>{items=snap.docs.map(d=>d.data());renderAll();},
+        err=>{console.error(err);$('syncBadge').textContent='● 연결 오류';$('syncBadge').classList.add('err');
+          toast('Firestore 연결 오류 — 보안 규칙/설정값 확인');});
       fs.onSnapshot(fs.doc(db,'config','settings'),snap=>{
         if(snap.exists())settings=Object.assign({},DEFAULT_SET,snap.data());
-        loadSettingsForm();renderAll();
+        loadSettingsForm();renderAll();});
+      // 디바이스 마스터(청크) 실시간 구독
+      fs.onSnapshot(fs.collection(db,'devmaster'),snap=>{
+        if(snap.empty)return;
+        const chunks=snap.docs.map(d=>d.data()).sort((a,b)=>(a.part||0)-(b.part||0));
+        const merged=[].concat(...chunks.map(c=>c.devices||[]));
+        if(merged.length){DEVICES=merged;buildDeviceIndex();
+          localStorage.setItem(LS_DEV,JSON.stringify(DEVICES));renderDevList();renderAll();}
       });
       return;
-    }catch(e){
-      console.error(e);
-      toast('Firebase 초기화 실패 — 로컬 모드로 전환합니다');
-    }
+    }catch(e){console.error(e);toast('Firebase 초기화 실패 — 로컬 모드로 전환');}
   }
-  // 로컬 모드
-  cloud=false;
-  $('localNotice').style.display='block';
+  cloud=false; $('localNotice').style.display='block';
   items=JSON.parse(localStorage.getItem(LS_KEY)||'[]');
   settings=Object.assign({},DEFAULT_SET,JSON.parse(localStorage.getItem(LS_SET)||'{}'));
-  loadSettingsForm();renderAll();
+  buildDeviceIndex();loadSettingsForm();renderAll();
 }
 async function dbPut(it){
   if(cloud){await fs.setDoc(fs.doc(db,'faults',it.id),it);}
@@ -416,12 +540,21 @@ async function dbPut(it){
 }
 async function dbDel(id){
   if(cloud){await fs.deleteDoc(fs.doc(db,'faults',id));}
-  else{items=items.filter(x=>x.id!==id);
-    localStorage.setItem(LS_KEY,JSON.stringify(items));renderAll();}
+  else{items=items.filter(x=>x.id!==id);localStorage.setItem(LS_KEY,JSON.stringify(items));renderAll();}
 }
 async function dbPutSettings(){
   if(cloud){await fs.setDoc(fs.doc(db,'config','settings'),settings);}
   else{localStorage.setItem(LS_SET,JSON.stringify(settings));renderAll();}
+}
+async function pushDeviceMaster(list){
+  if(!cloud)return;
+  const snap=await fs.getDocs(fs.collection(db,'devmaster'));
+  const del=fs.writeBatch(db);snap.forEach(d=>del.delete(d.ref));await del.commit();
+  const CH=1000;
+  for(let i=0;i<list.length;i+=CH){
+    await fs.setDoc(fs.doc(db,'devmaster','chunk_'+(i/CH)),
+      {devices:list.slice(i,i+CH),part:i/CH,updated:new Date().toISOString()});
+  }
 }
 
 /* ── 탭 ── */
@@ -429,16 +562,62 @@ window.showTab=function(name){
   document.querySelectorAll('.tab').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   $('tab-'+name).classList.add('active');
+  if(name==='dev')renderDevList();
 }
+
+/* ── MAC/점포/시리얼 자동조회·검증 ── */
+window.onMacInput=function(){
+  const mac=normMac($('fMac').value);
+  if(!mac){setChk('macChk','idle','디바이스 조회 대기');return}
+  const d=MAC_INDEX.get(mac);
+  if(d){
+    $('fSvc').value=d.svc||''; $('fDev').value=d.dev||'';
+    if(d.store)$('fStore').value=d.store;
+    if(d.serial){$('fSerial').value=d.serial;applySerial(d.serial);}
+    setChk('macChk','ok','✅ 디바이스 확인: '+(d.store||'-')+' / '+(d.dev||'-'));
+  }else{
+    setChk('macChk','warn','⚠️ 미등록 MAC — 수기 입력 (디바이스 리스트 갱신 권장)');
+  }
+  validateStore();
+}
+window.onSerialInput=function(){applySerial($('fSerial').value);validateStore();}
+function applySerial(ser){
+  ser=String(ser||'').replace(/\D/g,'').slice(0,7);
+  $('fSerial').value=ser;
+  $('fCode').value=ser.length>=4?ser.slice(0,4):'';
+  $('fIdx').value=ser.length>=7?ser.slice(4,7):'';
+  const code=$('fCode').value;
+  if(code&&STORES[code]&&!$('fStore').value)$('fStore').value=STORES[code];
+}
+window.onStoreInput=function(){validateStore();}
+function validateStore(){
+  const store=$('fStore').value.trim(), code=$('fCode').value.trim();
+  if(!store){setChk('storeChk','idle','점포코드↔점포명 검증 대기');return}
+  const codeOfName=NAME2CODE[store];
+  if(code){
+    if(STORES[code]===store)setChk('storeChk','ok','✅ 점포코드 '+code+' = '+store+' 일치');
+    else if(STORES[code])setChk('storeChk','bad','⚠️ 코드 '+code+'는 "'+STORES[code]+'" — 입력 점포명과 불일치');
+    else setChk('storeChk','warn','⚠️ 점포코드 '+code+' 미등록 (점포 마스터에 없음)');
+  }else if(codeOfName){
+    setChk('storeChk','ok','점포코드 '+codeOfName+' 확인 (시리얼 미입력)');
+  }else{
+    setChk('storeChk','warn','⚠️ "'+store+'" 점포 마스터 미등록');
+  }
+}
+function setChk(id,cls,txt){const el=$(id);el.className='chk '+cls;el.textContent=txt;}
 
 /* ── 등록/수정 ── */
 window.saveItem=async function(){
   const it={
-    date:$('fDate').value, store:$('fStore').value.trim(), svc:$('fSvc').value.trim(),
-    serial:$('fSerial').value.trim(), media:$('fMedia').value, loc:$('fLoc').value.trim(),
-    status:$('fStatus').value, channel:$('fChannel').value, symptom:$('fSymptom').value.trim()
+    date:$('fDate').value, mac:normMac($('fMac').value), macRaw:$('fMac').value.trim(),
+    store:$('fStore').value.trim(), serial:$('fSerial').value.trim(),
+    code:$('fCode').value.trim(), idx:$('fIdx').value.trim(),
+    dev:$('fDev').value.trim(), svc:$('fSvc').value.trim(),
+    symType:$('fSymType').value, status:$('fStatus').value, channel:$('fChannel').value,
+    content:$('fContent').value.trim(), action1:$('fAction1').value.trim(),
+    action2:$('fAction2').value.trim(), note:$('fNote').value.trim()
   };
-  if(!it.date||!it.store||!it.symptom){toast('접수일자·지점명·증상은 필수입니다');return}
+  if(!it.date||!it.store||!it.content){toast('접수일자·점포명·접수내용은 필수입니다');return}
   if(editId){
     const old=items.find(x=>x.id===editId);
     it.id=editId; if(old&&old.created)it.created=old.created;
@@ -452,16 +631,21 @@ window.saveItem=async function(){
 }
 window.resetForm=function(){
   editId=null;$('editingLabel').textContent='';
-  $('fDate').value=today();['fStore','fSvc','fSerial','fLoc','fSymptom'].forEach(k=>$(k).value='');
-  $('fMedia').value='사이니지';$('fStatus').value='접수';$('fChannel').value='메일';
+  $('fDate').value=today();
+  ['fMac','fSvc','fDev','fStore','fSerial','fCode','fIdx','fContent','fAction1','fAction2','fNote'].forEach(k=>$(k).value='');
+  $('fSymType').value='오류';$('fStatus').value='접수';$('fChannel').value='메일';
+  setChk('macChk','idle','디바이스 조회 대기');setChk('storeChk','idle','점포코드↔점포명 검증 대기');
 }
 window.editItem=function(id){
   const it=items.find(x=>x.id===id);if(!it)return;
   editId=id;$('editingLabel').textContent='(수정 중)';
-  $('fDate').value=it.date;$('fStore').value=it.store;$('fSvc').value=it.svc;$('fSerial').value=it.serial;
-  $('fMedia').value=it.media;$('fLoc').value=it.loc;$('fStatus').value=it.status;
-  $('fChannel').value=it.channel||'메일';$('fSymptom').value=it.symptom;
-  showTab('reg');window.scrollTo({top:0});
+  $('fDate').value=it.date||today();$('fMac').value=it.macRaw||it.mac||'';
+  $('fSvc').value=it.svc||'';$('fDev').value=it.dev||'';$('fStore').value=it.store||'';
+  $('fSerial').value=it.serial||'';$('fCode').value=it.code||'';$('fIdx').value=it.idx||'';
+  $('fSymType').value=it.symType||'오류';$('fStatus').value=it.status||'접수';
+  $('fChannel').value=it.channel||'메일';$('fContent').value=it.content||'';
+  $('fAction1').value=it.action1||'';$('fAction2').value=it.action2||'';$('fNote').value=it.note||'';
+  onMacInput();validateStore();showTab('reg');window.scrollTo({top:0});
 }
 window.delItem=async function(id){
   if(!confirm('이 접수 건을 삭제할까요?'+(cloud?' (팀 공유 데이터에서 삭제됩니다)':'')))return;
@@ -476,7 +660,7 @@ window.cycleStatus=async function(id){
 /* ── 리스트 ── */
 function sortKey(it){return (it.date||'')+(it.created||'')}
 window.renderList=function(){
-  const q=($('q').value||'').toLowerCase(), fst=$('fltStatus').value, fm=$('fltMedia').value;
+  const q=($('q').value||'').toLowerCase(), fst=$('fltStatus').value, fsy=$('fltSym').value;
   const dupStores=getDupStores();
   const asc=[...items].sort((a,b)=>sortKey(a).localeCompare(sortKey(b)));
   const noMap=new Map(asc.map((it,i)=>[it.id,i+1]));
@@ -484,15 +668,16 @@ window.renderList=function(){
   let rows='',cnt=0;
   sorted.forEach(it=>{
     if(fst&&it.status!==fst)return;
-    if(fm&&it.media!==fm)return;
-    if(q&&!((it.store+it.serial+it.svc+it.symptom+it.loc).toLowerCase().includes(q)))return;
+    if(fsy&&it.symType!==fsy)return;
+    if(q&&!((it.store+it.mac+it.serial+it.content+it.dev).toLowerCase().includes(q)))return;
     cnt++;
     const dup=dupStores.has(it.store)?' <span class="badge dup">중복</span>':'';
     rows+=`<tr>
       <td class="num">${noMap.get(it.id)}</td><td class="num">${esc(it.date)}</td>
+      <td class="num">${esc(it.mac)||'-'}</td>
       <td><b>${esc(it.store)}</b>${dup}</td>
-      <td class="num">${esc(it.svc)||'-'}</td><td class="num">${esc(it.serial)||'-'}</td>
-      <td>${esc(it.media)}</td><td>${esc(it.loc)||'-'}</td><td>${esc(it.symptom)}</td>
+      <td class="num">${esc(it.serial)||'-'}</td><td>${esc(it.dev)||'-'}</td>
+      <td>${esc(it.symType)||'-'}</td><td>${esc(it.content)}</td>
       <td><button class="badge ${it.status}" style="border:none;cursor:pointer" title="클릭 시 상태 변경"
         onclick="cycleStatus('${it.id}')">${it.status}</button></td>
       <td>${esc(it.channel||'-')}</td>
@@ -511,30 +696,29 @@ function getDupStores(){
   return new Set(Object.keys(m).filter(k=>m[k]>=2));
 }
 function renderDash(){
-  const total=items.length;
-  const ym=today().slice(0,7);
+  const total=items.length, ym=today().slice(0,7);
   const month=items.filter(i=>(i.date||'').startsWith(ym)).length;
   const open=items.filter(i=>i.status!=='완료').length;
   $('stTotal').innerHTML=total+'<small> 건</small>';
   $('stMonth').innerHTML=month+'<small> 건</small>';
   $('stOpen').innerHTML=open+'<small> 건</small>';
 
-  const serials=new Set(), noSerial=[];
-  items.forEach(i=>i.serial?serials.add(i.serial):noSerial.push(i));
-  const faultDevices=serials.size+noSerial.length;
-  const rate=settings.devices>0?(faultDevices/settings.devices*100):0;
+  const keys=new Set();items.forEach(i=>keys.add(i.mac||i.serial||(i.store+'|'+i.dev)));
+  const faultDevices=keys.size;
+  const totalDevices=(settings.devices&&settings.devices>0)?settings.devices:(DEVICES.length||1);
+  const rate=totalDevices>0?(faultDevices/totalDevices*100):0;
   $('gaugeVal').textContent=rate.toFixed(2)+'%';
   $('gaugeArc').style.strokeDashoffset=402-402*Math.min(rate,100)/100;
   $('gaugeArc').style.stroke=rate>=10?'var(--bad)':rate>=5?'var(--warn)':'var(--em-yellow)';
-  $('dTotalDevices').textContent=Number(settings.devices).toLocaleString()+' 대';
+  $('dTotalDevices').textContent=Number(totalDevices).toLocaleString()+' 대';
   $('dFaultDevices').textContent=faultDevices.toLocaleString()+' 대';
 
-  const faultStores=new Set(items.map(i=>i.store)).size;
-  $('dTotalStores').textContent=Number(settings.stores).toLocaleString()+' 개점';
+  const faultStores=new Set(items.map(i=>i.store).filter(Boolean)).size;
+  $('dTotalStores').textContent=Number(settings.stores||0).toLocaleString()+' 개점';
   $('dFaultStores').textContent=faultStores.toLocaleString()+' 개점';
   $('dStoreRate').textContent=settings.stores>0?(faultStores/settings.stores*100).toFixed(1)+'%':'-';
 
-  const mm={};items.forEach(i=>mm[i.media]=(mm[i.media]||0)+1);
+  const mm={};items.forEach(i=>{const k=i.symType||'기타';mm[k]=(mm[k]||0)+1});
   const max=Math.max(1,...Object.values(mm));
   const entries=Object.entries(mm).sort((a,b)=>b[1]-a[1]);
   $('mediaBars').innerHTML=entries.length?entries.map(([k,v])=>`
@@ -544,8 +728,7 @@ function renderDash(){
         <div style="width:${v/max*100}%;height:100%;background:var(--em-dark);border-radius:6px;
           display:flex;align-items:center;justify-content:flex-end;padding-right:6px">
           <span style="color:var(--em-yellow);font-size:11px;font-weight:700">${v}</span>
-        </div>
-      </div></div>`).join('')
+        </div></div></div>`).join('')
     :'<div class="empty">등록된 접수 건이 없습니다.</div>';
 
   const sm={};items.forEach(i=>sm[i.store]=(sm[i.store]||0)+1);
@@ -558,20 +741,20 @@ function renderDash(){
     :'<div class="empty">중복 접수 지점이 없습니다.</div>';
 }
 function renderDup(){
-  const byStore={},bySerial={};
+  const byStore={},byDev={};
   items.forEach(i=>{
     (byStore[i.store]=byStore[i.store]||[]).push(i);
-    if(i.serial)(bySerial[i.serial]=bySerial[i.serial]||[]).push(i);
+    const dk=i.serial||i.mac; if(dk)(byDev[dk]=byDev[dk]||[]).push(i);
   });
   const sRows=Object.entries(byStore).filter(([,v])=>v.length>=2).sort((a,b)=>b[1].length-a[1].length)
     .map(([k,v])=>{
       const last=v.map(x=>x.date).sort().pop();
-      const media=[...new Set(v.map(x=>x.media))].join(', ');
-      return `<tr><td><b>${esc(k)}</b></td><td class="num">${v.length}회</td><td class="num">${esc(last)}</td><td>${esc(media)}</td></tr>`;
+      const sym=[...new Set(v.map(x=>x.symType).filter(Boolean))].join(', ');
+      return `<tr><td><b>${esc(k)}</b></td><td class="num">${v.length}회</td><td class="num">${esc(last)}</td><td>${esc(sym)}</td></tr>`;
     }).join('');
   $('dupStoreBody').innerHTML=sRows||'<tr><td colspan="4"><div class="empty">2회 이상 접수된 지점이 없습니다.</div></td></tr>';
 
-  const rRows=Object.entries(bySerial).filter(([,v])=>v.length>=2).sort((a,b)=>b[1].length-a[1].length)
+  const rRows=Object.entries(byDev).filter(([,v])=>v.length>=2).sort((a,b)=>b[1].length-a[1].length)
     .map(([k,v])=>{
       const last=v.map(x=>x.date).sort().pop();
       return `<tr><td class="num">${esc(k)}</td><td>${esc(v[0].store)}</td><td class="num">${v.length}회</td><td class="num">${esc(last)}</td></tr>`;
@@ -579,20 +762,214 @@ function renderDup(){
   $('dupSerialBody').innerHTML=rRows||'<tr><td colspan="4"><div class="empty">재발 장비가 없습니다.</div></td></tr>';
 }
 function renderStoreList(){
-  const s=[...new Set(items.map(i=>i.store))].sort();
-  $('storeList').innerHTML=s.map(x=>`<option value="${esc(x)}">`).join('');
+  const names=Object.values(STORES).sort();
+  $('storeList').innerHTML=names.map(x=>`<option value="${esc(x)}">`).join('');
 }
-function renderAll(){renderDash();renderList();renderDup();renderStoreList()}
+window.renderDevList=function(){
+  const q=($('devQ')?.value||'').toLowerCase();
+  const list=DEVICES.filter(d=>!q||((d.mac+d.store+d.dev+d.serial).toLowerCase().includes(q))).slice(0,500);
+  $('devCount').textContent='표시 '+list.length+'건 / 전체 '+DEVICES.length.toLocaleString()+'대';
+  $('devBody').innerHTML=list.length?list.map(d=>`<tr>
+    <td>${esc(d.store)||'-'}</td><td>${esc(d.dev)||'-'}</td><td class="num">${esc(d.serial)||'-'}</td>
+    <td class="num">${esc(d.code)||'-'}</td><td class="num">${esc(d.idx)||'-'}</td>
+    <td class="num">${esc(d.mac)}</td><td class="num">${esc(d.svc)||'-'}</td></tr>`).join('')
+    :'<tr><td colspan="7"><div class="empty">디바이스 데이터가 없습니다. 엑셀을 업로드하세요.</div></td></tr>';
+}
+function renderAll(){renderDash();renderList();renderDup();renderStoreList();}
+
+/* ── 디바이스 엑셀 업로드 (SheetJS) ── */
+let XLSXlib=null;
+async function ensureXLSX(){
+  if(XLSXlib)return XLSXlib;
+  await new Promise((res,rej)=>{const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+  XLSXlib=window.XLSX;return XLSXlib;
+}
+window.importDeviceXlsx=async function(e){
+  const file=e.target.files[0];if(!file)return;
+  toast('엑셀 분석 중...');
+  try{
+    const XLSX=await ensureXLSX();
+    const buf=await file.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    let hi=-1;
+    for(let i=0;i<Math.min(rows.length,30);i++){
+      const line=rows[i].map(x=>String(x));
+      if(line.some(x=>x==='MAC')&&line.some(x=>/디바이스명/.test(x))){hi=i;break;}
+    }
+    if(hi<0){toast('헤더(MAC/디바이스명)를 찾지 못했습니다');return;}
+    const H=rows[hi].map(x=>String(x).trim());
+    const col=n=>H.findIndex(x=>x===n);
+    const ci={store:col('매장'),dev:col('디바이스명'),svc:col('서비스 관리 번호'),mac:col('MAC')};
+    if(ci.mac<0||ci.dev<0){toast('필수 열(MAC/디바이스명)이 없습니다');return;}
+    const serRe=/(\d{7})$/;
+    const out=[],seen=new Set();
+    for(let i=hi+1;i<rows.length;i++){
+      const r=rows[i];
+      const mac=normMac(r[ci.mac]);
+      if(!mac||seen.has(mac))continue;seen.add(mac);
+      const dev=String(r[ci.dev]||'').trim();
+      let store=ci.store>=0?String(r[ci.store]||'').trim():'';
+      let serial='',code='',idx='';
+      const m=serRe.exec(dev);
+      if(m&&m[1]!=='1111111'){serial=m[1];code=serial.slice(0,4);idx=serial.slice(4,7);}
+      if(!store&&code&&STORES[code])store=STORES[code];
+      out.push({mac,store,dev,svc:ci.svc>=0?String(r[ci.svc]||'').trim():'',serial,code,idx});
+    }
+    if(!out.length){toast('유효한 디바이스 행이 없습니다');return;}
+    DEVICES=out;buildDeviceIndex();
+    localStorage.setItem(LS_DEV,JSON.stringify(DEVICES));
+    renderDevList();renderAll();
+    if(cloud){toast('업로드 반영 중(팀 공유)...');await pushDeviceMaster(DEVICES);toast(out.length.toLocaleString()+'대 반영 완료 — 팀 전체 공유됨');}
+    else toast(out.length.toLocaleString()+'대 반영 완료 (로컬)');
+  }catch(err){console.error(err);toast('엑셀을 읽을 수 없습니다');}
+  e.target.value='';
+}
+
+/* ── 엑셀 일괄접수 (드래그&드롭 / 업로드 → 미리보기 → 이력 등록) ── */
+let importRows=[];
+function normDate(s){s=String(s||'').trim();
+  const m=s.match(/(\d{4})[.\-\/]\s?(\d{1,2})[.\-\/]\s?(\d{1,2})/);
+  if(m)return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+  return s.slice(0,10);}
+function parseSerial(d){const m=String(d||'').match(/(\d{7})$/);return (m&&m[1]!=='1111111')?m[1]:'';}
+function extractStore(d){d=String(d||'').trim();
+  const m=d.match(/([가-힣A-Za-z0-9]+점)/);
+  if(m&&NAME2CODE[m[1]])return m[1];
+  const t=d.replace(/^이_?/,'').split(/[_\s]/)[0];
+  if(t&&NAME2CODE[t+'점'])return t+'점';
+  return m?m[1]:'';}
+function dedupKey(it){return (it.date||'')+'|'+(it.mac||'')+'|'+(it.deviceInfo||it.store||'');}
+async function parseFaultFile(file){
+  const XLSX=await ensureXLSX();
+  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  let hi=-1;
+  for(let i=0;i<Math.min(rows.length,15);i++){
+    const line=rows[i].map(x=>String(x).toLowerCase());
+    if(line.some(x=>x.includes('mac'))&&line.some(x=>x.includes('매장')||x.includes('일자')||x.includes('장치'))){hi=i;break;}
+  }
+  if(hi<0)hi=0;
+  const macre=/([0-9A-Fa-f]{2}(?:[:\-][0-9A-Fa-f]{2}){5})/;
+  const existing=new Set(items.map(dedupKey)); const seen=new Set(); const out=[];
+  for(let i=hi+1;i<rows.length;i++){
+    const r=rows[i].map(x=>x==null?'':String(x).trim());
+    if(!r[0]&&!r[1]&&!r[3])continue;
+    const date=normDate(r[0]);
+    const mm=(r[1]||'').match(macre); const mac=mm?normMac(mm[1]):'';
+    const macMemo=(r[1]||'').replace(mm?mm[1]:'','').trim();
+    const dev=MAC_INDEX.get(mac)||{};
+    let serial=dev.serial||parseSerial(r[3]);
+    let code=serial?serial.slice(0,4):'', idx=serial?serial.slice(4,7):'';
+    let store=(r[2]||'')||dev.store||(code&&STORES[code]?STORES[code]:'')||extractStore(r[3]);
+    const content=(r[5]||macMemo||r[3]||'').trim();
+    const it={date,mac,macRaw:r[1]||'',store,deviceInfo:r[3]||'',
+      serial,code,idx,dev:dev.dev||'',svc:dev.svc||'',
+      symType:r[4]||'기타',content,action1:r[5]||'',action2:r[6]||'',note:r[7]||'',
+      status:(r[5]||r[6])?'완료':'접수'};
+    const key=dedupKey(it);
+    it._dup=existing.has(key)||seen.has(key);
+    it._macMatched=!!dev.mac;
+    it._codeOk=code?(STORES[code]===store):null;
+    seen.add(key); out.push(it);
+  }
+  return out;
+}
+async function handleImportFile(file){
+  if(!/\.xls[xm]?$/i.test(file.name)){toast('xlsx 파일을 올려주세요');return;}
+  toast('엑셀 분석 중...');
+  try{
+    importRows=await parseFaultFile(file);
+    showTab('up'); renderPreview();
+    if(!importRows.length)toast('가져올 행이 없습니다');
+  }catch(err){console.error(err);toast('엑셀을 읽을 수 없습니다');}
+}
+window.handleImportInput=async function(e){const f=e.target.files[0];if(f)await handleImportFile(f);e.target.value='';}
+function renderPreview(){
+  const wrap=$('upPreviewWrap');
+  if(!importRows.length){wrap.style.display='none';$('upSummary').innerHTML='<div class="empty">가져올 행이 없습니다.</div>';return;}
+  const neu=importRows.filter(r=>!r._dup).length, dup=importRows.length-neu;
+  const nomac=importRows.filter(r=>!r._macMatched).length;
+  const bad=importRows.filter(r=>r._codeOk===false).length;
+  $('upSummary').innerHTML=`<div class="info">파싱 완료 · 총 <b>${importRows.length}</b>건 — 신규 <b>${neu}</b> · 중복 ${dup} · MAC미매칭 ${nomac} · 코드불일치 ${bad}</div>`;
+  $('upStat').textContent=`신규 ${neu}건 등록 대상 (중복 ${dup}건 자동 제외)`;
+  $('upCommitBtn').textContent=`✔ 신규 ${neu}건 등록`;
+  $('upCommitBtn').disabled=neu===0;
+  wrap.style.display='block';
+  $('upBody').innerHTML=importRows.map(r=>{
+    const st=r._dup?'<span class="badge dup">중복</span>':'<span class="badge 완료">신규</span>';
+    const chk=!r._macMatched?'<span class="chk warn">MAC미매칭</span>'
+      :(r._codeOk===false?'<span class="chk bad">코드불일치</span>':'<span class="chk ok">✓ 확인</span>');
+    return `<tr style="${r._dup?'opacity:.45':''}">
+      <td>${st}</td><td class="num">${esc(r.date)}</td><td class="num">${esc(r.mac)||'-'}</td>
+      <td><b>${esc(r.store)||'-'}</b></td><td class="num">${esc(r.serial)||'-'}</td>
+      <td>${esc(r.dev)||esc(r.deviceInfo)||'-'}</td><td>${esc(r.content)||esc(r.symType)}</td><td>${chk}</td></tr>`;
+  }).join('');
+}
+window.cancelImport=function(){importRows=[];$('upPreviewWrap').style.display='none';$('upSummary').innerHTML='';toast('취소되었습니다');}
+window.commitImport=async function(){
+  const neu=importRows.filter(r=>!r._dup);
+  if(!neu.length){toast('등록할 신규 건이 없습니다');return;}
+  toast('등록 중...');
+  let n=0;
+  for(const r of neu){
+    const it=Object.assign({},r);
+    delete it._dup;delete it._macMatched;delete it._codeOk;
+    it.id=newId();it.created=new Date().toISOString();it.source='엑셀업로드';
+    await dbPut(it);n++;
+  }
+  importRows=[];renderPreview();$('upSummary').innerHTML='';
+  toast(n+'건 접수 등록 완료'+(cloud?' — 팀 이력에 반영됨':''));
+  showTab('list');
+};
+/* 드래그&드롭 */
+(function initDropzone(){
+  const dz=$('dropzone'); if(!dz)return;
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();e.stopPropagation();dz.classList.add('drag');}));
+  ['dragleave','dragend'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();e.stopPropagation();dz.classList.remove('drag');}));
+  dz.addEventListener('drop',e=>{e.preventDefault();e.stopPropagation();dz.classList.remove('drag');
+    const f=e.dataTransfer.files&&e.dataTransfer.files[0]; if(f)handleImportFile(f);});
+  // 브라우저가 실수로 파일을 여는 것 방지
+  ['dragover','drop'].forEach(ev=>window.addEventListener(ev,e=>{if(e.target!==dz&&!dz.contains(e.target))e.preventDefault();}));
+})();
+async function mergeItems(incoming){
+  const keys=new Set(items.map(i=>i.id||(i.date+'|'+i.mac+'|'+i.store+'|'+i.content)));
+  let added=0;
+  for(const raw of incoming){
+    const it=Object.assign({},raw);
+    const k=it.id||(it.date+'|'+it.mac+'|'+it.store+'|'+(it.content||''));
+    if(keys.has(k))continue;
+    if(!it.id)it.id=newId();
+    if(!it.created)it.created=new Date().toISOString();
+    if(!it.symType&&it.symptomType)it.symType=it.symptomType;
+    if(!it.content&&it.macMemo)it.content=it.macMemo;
+    await dbPut(it);keys.add(k);added++;
+  }
+  toast(added+'건 병합 완료 (중복 '+(incoming.length-added)+'건 제외)');
+}
+window.importJSON=async function(e){
+  const file=e.target.files[0];if(!file)return;
+  const rd=new FileReader();
+  rd.onload=async()=>{try{
+    const data=JSON.parse(rd.result);
+    await mergeItems(Array.isArray(data)?data:(data.items||[]));
+  }catch(err){console.error(err);toast('파일을 읽을 수 없습니다')}};
+  rd.readAsText(file);e.target.value='';
+}
 
 /* ── 메일/카톡 생성 ── */
 function formSnapshot(){
-  return {date:$('fDate').value||today(),store:$('fStore').value.trim()||'(지점명)',
-    svc:$('fSvc').value.trim()||'-',serial:$('fSerial').value.trim()||'-',
-    media:$('fMedia').value,loc:$('fLoc').value.trim()||'-',symptom:$('fSymptom').value.trim()||'(증상 기재)'};
+  return {date:$('fDate').value||today(),store:$('fStore').value.trim()||'(점포명)',
+    mac:normMac($('fMac').value)||'-',serial:$('fSerial').value.trim()||'-',
+    dev:$('fDev').value.trim()||'-',svc:$('fSvc').value.trim()||'-',
+    symType:$('fSymType').value,content:$('fContent').value.trim()||'(접수내용 기재)'};
 }
 window.genMail=function(){
-  const f=formSnapshot();
-  const no=items.length+1;
+  const f=formSnapshot(); const no=items.length+1;
   const body=
 `[이마트 On-Ad 장애접수 요청]
 
@@ -600,14 +977,15 @@ window.genMail=function(){
 아래 장애 건 접수 요청드립니다.
 
 ──────────────────────
-NO        : ${no}
-접수일자  : ${f.date}
-지점명    : ${f.store}
-서비스번호: ${f.svc}
-시리얼넘버: ${f.serial}
-매체      : ${f.media}
-상세위치  : ${f.loc}
-증상      : ${f.symptom}
+NO          : ${no}
+접수일자    : ${f.date}
+점포명      : ${f.store}
+MAC번호     : ${f.mac}
+시리얼번호  : ${f.serial}
+디바이스명  : ${f.dev}
+서비스관리번호: ${f.svc}
+증상유형    : ${f.symType}
+접수내용    : ${f.content}
 ──────────────────────
 
 확인 후 처리 부탁드립니다.
@@ -616,7 +994,7 @@ NO        : ${no}
 }
 window.genKakao=function(){
   const f=formSnapshot();
-  const body=`[장애접수 안내] ${f.store} / ${f.media} 장애 건 방금 메일로 접수 요청드렸습니다. 확인 부탁드립니다. (증상: ${f.symptom})`;
+  const body=`[장애접수 안내] ${f.store} / ${f.dev!=='-'?f.dev:f.symType} (${f.mac}) 장애 건 방금 메일로 접수 요청드렸습니다. 확인 부탁드립니다. (내용: ${f.content})`;
   openDlg('💬 카톡 간단소통 메시지',body);
 }
 function openDlg(title,body){$('dlgTitle').textContent=title;$('dlgBody').textContent=body;dlg.showModal()}
@@ -629,11 +1007,11 @@ window.copyDlg=function(){
 
 /* ── 설정 ── */
 function loadSettingsForm(){
-  $('setDevices').value=settings.devices;$('setStores').value=settings.stores;
+  $('setDevices').value=settings.devices||0;$('setStores').value=settings.stores;
   $('setMailTo').value=settings.mailTo;$('setSign').value=settings.sign;
 }
 window.saveSettings=async function(){
-  settings.devices=parseInt($('setDevices').value)||1;
+  settings.devices=parseInt($('setDevices').value)||0;
   settings.stores=parseInt($('setStores').value)||1;
   settings.mailTo=$('setMailTo').value.trim();settings.sign=$('setSign').value.trim();
   await dbPutSettings();toast('기준이 저장되었습니다'+(cloud?' — 팀 전체 적용':''));
@@ -650,30 +1028,12 @@ window.exportJSON=function(){
   const blob=new Blob([JSON.stringify({exported:new Date().toISOString(),settings,items},null,2)],{type:'application/json'});
   dl(blob,'이마트_장애접수_'+today()+'.json');toast('JSON 백업 파일이 생성되었습니다');
 }
-window.importJSON=async function(e){
-  const file=e.target.files[0];if(!file)return;
-  const rd=new FileReader();
-  rd.onload=async()=>{try{
-    const data=JSON.parse(rd.result);
-    const incoming=Array.isArray(data)?data:(data.items||[]);
-    const keys=new Set(items.map(i=>i.id||i.date+'|'+i.store+'|'+i.serial+'|'+i.symptom));
-    let added=0;
-    for(const it of incoming){
-      const k=it.id||it.date+'|'+it.store+'|'+it.serial+'|'+it.symptom;
-      if(keys.has(k))continue;
-      if(!it.id)it.id=newId();
-      await dbPut(it);keys.add(k);added++;
-    }
-    toast(added+'건 병합 완료 (중복 '+(incoming.length-added)+'건 제외)');
-  }catch(err){console.error(err);toast('파일을 읽을 수 없습니다')}};
-  rd.readAsText(file);e.target.value='';
-}
 window.exportCSV=function(){
-  const head=['NO','접수일자','지점명','서비스번호','시리얼넘버','매체','상세위치','증상','처리상태','접수경로'];
+  const head=['NO','접수일','MAC','점포명','시리얼','점포코드','인덱스','디바이스명','서비스관리번호','증상유형','접수내용','1차조치','2차조치','상태','경로','비고'];
   const asc=[...items].sort((a,b)=>sortKey(a).localeCompare(sortKey(b)));
-  const rows=asc.map((it,i)=>[i+1,it.date,it.store,it.svc,it.serial,it.media,it.loc,it.symptom,it.status,it.channel||'']
+  const rows=asc.map((it,i)=>[i+1,it.date,it.mac,it.store,it.serial,it.code,it.idx,it.dev,it.svc,it.symType,it.content,it.action1,it.action2,it.status,it.channel,it.note]
     .map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','));
-  const blob=new Blob(['\uFEFF'+head.join(',')+'\n'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
+  const blob=new Blob(['﻿'+head.join(',')+'\n'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
   dl(blob,'이마트_장애접수_'+today()+'.csv');toast('CSV 파일이 다운로드되었습니다');
 }
 function dl(blob,name){
