@@ -385,7 +385,7 @@ function vDash(S){
   </div>
   <div class="grid3">
     <div class="card"><div class="sec">상품별 개통 실적 <span style="font-weight:400;color:var(--faint);font-size:11px">(개통완료 청약 기준)</span></div>
-      ${prow("실선",S.prod.silseon,"회선")}${prow("정액6",S.prod.jeongaek,"회선")}${prow("보안GigaBiz",S.prod.giga,"회선")}${prow("스탠다드(IPTV)",S.prod.iptv,"대")}${prow("WiFi",S.prod.wifi,"대")}${prow("AI레코딩",S.prod.airec,"회선")}${prow("발신번호변경",S.prod.callerid,"회선")}
+      ${prow("실선",S.prod.silseon,"회선")}${prow("정액6",S.prod.jeongaek,"회선")}${prow("보안GigaBiz",S.prod.giga,"회선")}${prow("스탠다드(IPTV)",S.prod.iptv,"대")}${prow("AI레코딩",S.prod.airec,"회선")}
     </div>
     <div class="card"><div class="sec">기존 통신사·가입 유형</div>
       ${prow("KT",S.tel.KT,"점")}${prow("LGU+",S.tel["LGU+"],"점")}${prow("번호이동 / 신규",S.move+" / "+S.fresh,"")}
@@ -718,7 +718,7 @@ function orderFromStore(id){
   curOrder={id:"",customer:s.name||"",manager:s.owner||"",juris:s.juris||JURIS[0],storeId:s.id,caseType:"전화만",otherCarrier:s.telco||"",billReceived:"N",lineCountConf:"",status:"상담중",lines:[emptyLine()],memo:s.addr?("주소: "+s.addr):""};
   renderOrderModal();
 }
-function syncOrderToStore(order){
+function findOrderStore(order){
   let s=null;
   if(order.storeId) s=(DB.stores||[]).find(x=>x.id===order.storeId);
   if(!s){
@@ -727,7 +727,19 @@ function syncOrderToStore(order){
     ms.sort((a,b)=>(b.name||"").length-(a.name||"").length);
     s=ms[0];
   }
-  if(!s || s.memX==="X") return null;
+  return (!s || s.memX==="X") ? null : s;
+}
+function resetStoreOnOrderDelete(order){
+  const s=findOrderStore(order); if(!s) return null;
+  const cleanNote=(s.note||"").split(" / ").filter(t=>t.indexOf("청약 개통완료 반영")<0).join(" / ").trim();
+  const up=Object.assign({},s,{status:"미접촉",openD:"",updatedAt:now(),updatedBy:uName(),note:cleanNote});
+  if(cloud) saveStoreCloud(up);
+  else { const i=DB.stores.findIndex(x=>x.id===s.id); if(i>-1) DB.stores[i]=up; persist(); }
+  return s.name;
+}
+function syncOrderToStore(order){
+  const s=findOrderStore(order);
+  if(!s) return null;
   const stv=normOStatus(order.status);
   const up=Object.assign({},s,{status:stv,updatedAt:now(),updatedBy:uName()});
   if(order.otherCarrier) up.telco=order.otherCarrier;
@@ -759,10 +771,12 @@ function saveOrder(){
 }
 function delOrder(){
   if(!curOrder.id) return;
-  if(!confirm("이 청약서를 삭제할까요?")) return;
-  const _id=curOrder.id;
+  if(!confirm("이 청약서를 삭제할까요? 연결된 가맹점 상태는 '미접촉'으로 되돌아갑니다.")) return;
+  const _id=curOrder.id, _ord=curOrder;
   if(cloud) delOrderCloud(_id); else { DB.orders=(DB.orders||[]).filter(o=>o.id!==_id); persist(); }
-  closeOrder(); render(); toast("삭제되었습니다");
+  const sName=resetStoreOnOrderDelete(_ord);
+  closeOrder(); render();
+  toast("삭제되었습니다"+(sName?" · 가맹점 '"+sName+"' 상태 → 미접촉":""));
 }
 function exportOrderXlsx(){
   if(typeof XLSX==="undefined"){ toast("엑셀 라이브러리를 불러오지 못했습니다 — 인터넷 연결 확인 후 다시 시도하세요"); return; }
