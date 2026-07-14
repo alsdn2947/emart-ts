@@ -34,8 +34,15 @@
   nav button:focus-visible{outline:2px solid var(--em-dark);outline-offset:-2px}
 
   main{max-width:1180px;margin:0 auto;padding:20px 22px 60px}
+  /* 접수 리스트 탭일 때 화면을 넓게 사용 */
+  main:has(#tab-list.active){max-width:1600px}
   .tab{display:none}
   .tab.active{display:block}
+
+  /* 접수 리스트 열 정렬/줄바꿈 제어 */
+  #listTable td.nowrap,#listTable th{white-space:nowrap}
+  #listTable td.wrapcol{white-space:normal;max-width:240px;word-break:break-word}
+  #listTable td.wrapmid{white-space:normal;max-width:180px;word-break:break-word}
 
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
   .card h2{font-size:15px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
@@ -251,7 +258,8 @@
       <div><label>1차 조치 (결과)</label><textarea id="fAction1" placeholder="디바이스/앱/아쿠아 등 조치 결과"></textarea></div>
       <div><label>2차 조치 (일자·결과)</label><textarea id="fAction2" placeholder="추가 조치 이력"></textarea></div>
     </div>
-    <div class="photo-box" style="margin-bottom:14px">
+    <!-- 사진 첨부 기능 보류(숨김) — 사용하려면 아래 style의 display:none 을 제거하세요 -->
+    <div class="photo-box" style="margin-bottom:14px;display:none">
       <label>장애 현장 사진 <span class="hint">(최대 5장 · 장당 10MB 이하)</span></label>
       <div class="photo-toolbar">
         <button type="button" class="btn" onclick="document.getElementById('fPhotos').click()">📷 사진 선택</button>
@@ -340,14 +348,16 @@
         <option value="">증상 전체</option><option>오류</option><option>에러</option><option>로고</option>
         <option>화면멈춤</option><option>블랙아웃</option><option>재부팅</option><option>통신불량</option><option>기타</option>
       </select>
+      <button class="btn dark" onclick="exportCSV()">📊 전체 접수내역 추출(Excel)</button>
+      <button class="btn" onclick="exportCSVView()">현재 목록만 추출</button>
       <span class="spacer"></span>
       <span class="hint" id="listCount"></span>
     </div>
     <div class="table-wrap">
-      <table>
+      <table id="listTable">
         <thead><tr>
           <th>NO</th><th>접수일</th><th>MAC</th><th>점포명</th><th>시리얼</th><th>디바이스명</th>
-          <th>증상</th><th>접수내용</th><th>사진</th><th>조치내용</th><th>상태</th><th>경로</th><th>관리</th>
+          <th>증상</th><th>접수내용</th><th>조치내용</th><th>상태</th><th>경로</th><th>관리</th>
         </tr></thead>
         <tbody id="listBody"></tbody>
       </table>
@@ -696,6 +706,11 @@ function validateStore(){
 function setChk(id,cls,txt){const el=$(id);el.className='chk '+cls;el.textContent=txt;}
 
 /* ── 사진 접수 ── */
+// 저장형 XSS 방지: 사진 URL은 https 또는 data:image 스킴만 허용
+function safePhotoUrl(u){
+  u=String(u||'');
+  return (/^https:\/\//i.test(u)||/^data:image\//i.test(u))?u:'';
+}
 async function imageToDataUrl(file){
   if(!file.type.startsWith('image/'))throw new Error('이미지 파일만 첨부할 수 있습니다');
   if(file.size>10*1024*1024)throw new Error(file.name+' 파일이 10MB를 초과합니다');
@@ -720,9 +735,9 @@ window.handlePhotos=async function(e){
 }
 function renderPhotoPreview(){
   $('photoHelp').textContent=pendingPhotos.length?pendingPhotos.length+'장 선택됨 · 썸네일 클릭 시 크게 보기':'사진을 등록하면 접수 건과 함께 저장됩니다.';
-  $('photoPreview').innerHTML=pendingPhotos.map((p,i)=>`<div class="photo-item"><img src="${esc(p.url||p.dataUrl)}" alt="첨부 사진 ${i+1}" onclick="previewPendingPhoto(${i})"><button type="button" title="삭제" onclick="removePendingPhoto(${i})">×</button></div>`).join('');
+  $('photoPreview').innerHTML=pendingPhotos.map((p,i)=>`<div class="photo-item"><img src="${esc(safePhotoUrl(p.url||p.dataUrl))}" alt="첨부 사진 ${i+1}" onclick="previewPendingPhoto(${i})"><button type="button" title="삭제" onclick="removePendingPhoto(${i})">×</button></div>`).join('');
 }
-window.previewPendingPhoto=function(i){const p=pendingPhotos[i];if(p)window.open(p.url||p.dataUrl,'_blank','noopener')}
+window.previewPendingPhoto=function(i){const p=pendingPhotos[i];const u=p&&safePhotoUrl(p.url||p.dataUrl);if(u)window.open(u,'_blank','noopener')}
 window.removePendingPhoto=function(i){
   const p=pendingPhotos[i];
   if(p?.path&&!removedPhotoPaths.includes(p.path))removedPhotoPaths.push(p.path);
@@ -751,7 +766,8 @@ async function uploadPendingPhotos(itemId){
 window.openPhotos=function(id){
   const it=items.find(x=>x.id===id);const photos=it?.photos||[];if(!photos.length)return;
   $('photoDlgTitle').textContent=(it.store||'')+' 장애 사진 ('+photos.length+'장)';
-  $('photoGallery').innerHTML=photos.map((p,i)=>`<a href="${esc(p.url)}" target="_blank" rel="noopener"><img src="${esc(p.url)}" alt="장애 사진 ${i+1}"></a>`).join('');
+  $('photoGallery').innerHTML=photos.map((p,i)=>{const u=safePhotoUrl(p.url);
+    return u?`<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="장애 사진 ${i+1}"></a>`:'';}).join('');
   document.getElementById('photoDlg').showModal();
 }
 
@@ -863,23 +879,22 @@ window.renderList=function(){
     cnt++;
     const dup=dupStores.has(it.store)?' <span class="badge dup">중복</span>':'';
     rows+=`<tr>
-      <td class="num">${noMap.get(it.id)}</td><td class="num">${esc(it.date)}</td>
-      <td class="num">${esc(it.mac)||'-'}</td>
-      <td><b>${esc(it.store)}</b>${dup}</td>
-      <td class="num">${esc(it.serial)||'-'}</td><td>${esc(it.dev)||'-'}</td>
-      <td>${esc(it.symType)||'-'}</td><td>${esc(it.content)}</td>
-      <td>${(it.photos||[]).length?`<button class="btn sm" onclick="openPhotos('${it.id}')">📷 ${(it.photos||[]).length}장</button>`:'-'}</td>
-      <td>${esc(it.action1)||'-'}${it.action2?' / '+esc(it.action2):''}${it.doneDate?`<div class="hint" style="margin-top:2px">완료 ${esc(it.doneDate)}</div>`:''}</td>
-      <td><button class="badge ${it.status}" style="border:none;cursor:pointer" title="클릭 시 상태 변경 (처리중→완료 시 조치입력)"
+      <td class="num nowrap">${noMap.get(it.id)}</td><td class="num nowrap">${esc(it.date)}</td>
+      <td class="num nowrap">${esc(it.mac)||'-'}</td>
+      <td class="nowrap"><b>${esc(it.store)}</b>${dup}</td>
+      <td class="num nowrap">${esc(it.serial)||'-'}</td><td class="wrapmid">${esc(it.dev)||'-'}</td>
+      <td class="nowrap">${esc(it.symType)||'-'}</td><td class="wrapcol">${esc(it.content)}</td>
+      <td class="wrapmid">${esc(it.action1)||'-'}${it.action2?' / '+esc(it.action2):''}${it.doneDate?`<div class="hint" style="margin-top:2px">완료 ${esc(it.doneDate)}</div>`:''}</td>
+      <td class="nowrap"><button class="badge ${it.status}" style="border:none;cursor:pointer" title="클릭 시 상태 변경 (처리중→완료 시 조치입력)"
         onclick="cycleStatus('${it.id}')">${it.status}</button></td>
-      <td>${esc(it.channel||'-')}</td>
-      <td style="white-space:nowrap">
+      <td class="nowrap">${esc(it.channel||'-')}</td>
+      <td class="nowrap">
         <button class="btn sm" title="조치 내용 입력" onclick="openDoneDlg('${it.id}',false)">조치</button>
         <button class="btn sm" onclick="editItem('${it.id}')">수정</button>
         <button class="btn sm danger" onclick="delItem('${it.id}')">삭제</button>
       </td></tr>`;
   });
-  $('listBody').innerHTML=rows||'<tr><td colspan="13"><div class="empty">조건에 맞는 접수 건이 없습니다.</div></td></tr>';
+  $('listBody').innerHTML=rows||'<tr><td colspan="12"><div class="empty">조건에 맞는 접수 건이 없습니다.</div></td></tr>';
   $('listCount').textContent='표시 '+cnt+'건 / 전체 '+items.length+'건';
 }
 
@@ -1296,13 +1311,32 @@ window.exportJSON=function(){
   const blob=new Blob([JSON.stringify({exported:new Date().toISOString(),settings,items},null,2)],{type:'application/json'});
   dl(blob,'이마트_장애접수_'+today()+'.json');toast('JSON 백업 파일이 생성되었습니다');
 }
+function listFiltered(){
+  const q=($('q')?.value||'').toLowerCase(), fst=$('fltStatus')?.value||'', fsy=$('fltSym')?.value||'';
+  return items.filter(it=>{
+    if(fst&&it.status!==fst)return false;
+    if(fsy&&it.symType!==fsy)return false;
+    if(q&&!((it.store+it.mac+it.serial+it.content+it.dev).toLowerCase().includes(q)))return false;
+    return true;
+  });
+}
+function buildCSV(list){
+  const head=['NO','접수일','MAC','점포명','시리얼','점포코드','인덱스','디바이스명','서비스관리번호','증상유형','접수내용','1차조치','2차조치','완료일','상태','경로','비고'];
+  const asc=[...list].sort((a,b)=>sortKey(a).localeCompare(sortKey(b)));
+  const rows=asc.map((it,i)=>[i+1,it.date,it.mac,it.store,it.serial,it.code,it.idx,it.dev,it.svc,it.symType,it.content,it.action1,it.action2,it.doneDate,it.status,it.channel,it.note]
+    .map(v=>{let s=String(v??'');if(/^[=+@]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';}).join(','));
+  return '﻿'+head.join(',')+'\n'+rows.join('\n');
+}
 window.exportCSV=function(){
-  const head=['NO','접수일','MAC','점포명','시리얼','점포코드','인덱스','디바이스명','서비스관리번호','증상유형','접수내용','사진수','사진URL','1차조치','2차조치','완료일','상태','경로','비고'];
-  const asc=[...items].sort((a,b)=>sortKey(a).localeCompare(sortKey(b)));
-  const rows=asc.map((it,i)=>[i+1,it.date,it.mac,it.store,it.serial,it.code,it.idx,it.dev,it.svc,it.symType,it.content,(it.photos||[]).length,(it.photos||[]).map(p=>p.url).join(' | '),it.action1,it.action2,it.doneDate,it.status,it.channel,it.note]
-    .map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','));
-  const blob=new Blob(['﻿'+head.join(',')+'\n'+rows.join('\n')],{type:'text/csv;charset=utf-8'});
-  dl(blob,'이마트_장애접수_'+today()+'.csv');toast('CSV 파일이 다운로드되었습니다');
+  if(!items.length){toast('추출할 접수 내역이 없습니다');return;}
+  dl(new Blob([buildCSV(items)],{type:'text/csv;charset=utf-8'}),'이마트_장애접수_전체_'+today()+'.csv');
+  toast('전체 접수내역 '+items.length+'건이 추출되었습니다');
+}
+window.exportCSVView=function(){
+  const list=listFiltered();
+  if(!list.length){toast('현재 목록에 추출할 건이 없습니다');return;}
+  dl(new Blob([buildCSV(list)],{type:'text/csv;charset=utf-8'}),'이마트_장애접수_현재목록_'+today()+'.csv');
+  toast('현재 목록 '+list.length+'건이 추출되었습니다');
 }
 function dl(blob,name){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
