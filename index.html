@@ -157,7 +157,7 @@
   <div class="logo">e</div>
   <div>
     <h1>이마트 On-Ad 장애접수·이력관리</h1>
-    <div class="sub">실시간 공유 버전 · MAC 자동조회 · 점포코드 검증</div>
+    <div class="sub">실시간 공유 버전 · MAC 자동조회 · 점포코드 검증 <span id="verTag" style="opacity:.7"></span></div>
   </div>
   <div class="right">
     <span id="devBadge">디바이스 0대</span>
@@ -1024,17 +1024,53 @@ window.renderDevList=function(){
 }
 function renderAll(){renderDash();renderList();renderDup();renderStoreList();}
 
-/* ── 자체 내장 xlsx 리더 (외부 라이브러리·CDN 불필요, 사내망에서도 동작) ──
-   · ZIP을 직접 풀고(브라우저 내장 DecompressionStream), 시트 XML을 파싱
+/* ── 자체 내장 xlsx 리더 (외부 라이브러리·CDN·브라우저 기능 의존 전혀 없음) ──
+   · 순수 JS로 ZIP 풀기(DEFLATE 인플레이트) + 정규식 XML 파싱
+   · DecompressionStream / DOMParser 미지원 브라우저·사내망에서도 동작
    · CMS 엑셀의 잘못된 dimension(A1) 값을 무시하고 실제 셀 범위로 읽음        */
 const _u16=(b,o)=>b[o]|(b[o+1]<<8);
 const _u32=(b,o)=>(b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0;
-async function _inflateRaw(bytes){
-  if(typeof DecompressionStream==='undefined')throw new Error('이 브라우저는 지원되지 않습니다(최신 크롬/엣지 권장)');
-  const s=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-  return new Uint8Array(await new Response(s).arrayBuffer());
+// 순수 JS raw DEFLATE 인플레이터 (tinf 알고리즘 기반)
+function _inflateRawJS(source){
+  const LBASE=[3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258],
+        LBITS=[0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0],
+        DBASE=[1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577],
+        DBITS=[0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13],
+        CLCIDX=[16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+  let pos=0,tag=0,bitcount=0,cap=1<<20,dest=new Uint8Array(cap),dlen=0;
+  function push(x){if(dlen>=cap){cap*=2;const n=new Uint8Array(cap);n.set(dest);dest=n;}dest[dlen++]=x;}
+  function gb(){if(bitcount--<=0){tag=source[pos++];bitcount=7;}const b=tag&1;tag>>=1;return b;}
+  function gbits(n,base){let v=0;for(let i=0;i<n;i++)v|=gb()<<i;return v+(base||0);}
+  function Tree(){this.table=new Uint16Array(16);this.trans=new Uint16Array(288);}
+  function build(t,l,off,num){let i,s;for(i=0;i<16;i++)t.table[i]=0;for(i=0;i<num;i++)t.table[l[off+i]]++;t.table[0]=0;
+    const o=new Uint16Array(16);for(s=0,i=0;i<16;i++){o[i]=s;s+=t.table[i];}
+    for(i=0;i<num;i++)if(l[off+i])t.trans[o[l[off+i]]++]=i;}
+  function dsym(t){let sum=0,cur=0,len=0;do{cur=2*cur+gb();len++;sum+=t.table[len];cur-=t.table[len];}while(cur>=0);return t.trans[sum+cur];}
+  const slt=new Tree(),sdt=new Tree();
+  (function(){const l=new Uint8Array(288);let i=0;for(;i<144;i++)l[i]=8;for(;i<256;i++)l[i]=9;for(;i<280;i++)l[i]=7;for(;i<288;i++)l[i]=8;build(slt,l,0,288);
+    const d=new Uint8Array(30);for(i=0;i<30;i++)d[i]=5;build(sdt,d,0,30);})();
+  const lt=new Tree(),dt=new Tree();
+  function dtrees(){const hlit=gbits(5,257),hdist=gbits(5,1),hclen=gbits(4,4),l=new Uint8Array(320);let i;
+    for(i=0;i<19;i++)l[i]=0;for(i=0;i<hclen;i++)l[CLCIDX[i]]=gbits(3,0);
+    const ct=new Tree();build(ct,l,0,19);let num=0;
+    while(num<hlit+hdist){const s=dsym(ct);
+      if(s===16){const p=l[num-1];let c=gbits(2,3);while(c--)l[num++]=p;}
+      else if(s===17){let c=gbits(3,3);while(c--)l[num++]=0;}
+      else if(s===18){let c=gbits(7,11);while(c--)l[num++]=0;}
+      else l[num++]=s;}
+    build(lt,l,0,hlit);build(dt,l,hlit,hdist);}
+  function iblock(a,b){while(1){const s=dsym(a);if(s===256)return;if(s<256)push(s);
+    else{const x=s-257,length=gbits(LBITS[x],LBASE[x]),ds=dsym(b),dist=gbits(DBITS[ds],DBASE[ds]),st=dlen-dist;
+      for(let i=0;i<length;i++)push(dest[st+i]);}}}
+  let bf;do{bf=gb();const bt=gbits(2,0);
+    if(bt===0){bitcount=0;const len=source[pos]|(source[pos+1]<<8);pos+=4;for(let i=0;i<len;i++)push(source[pos++]);}
+    else if(bt===1)iblock(slt,sdt);
+    else if(bt===2){dtrees();iblock(lt,dt);}
+    else throw new Error('DEFLATE block type '+bt);
+  }while(!bf);
+  return dest.subarray(0,dlen);
 }
-async function _unzip(arrayBuffer){
+function _unzip(arrayBuffer){
   const b=new Uint8Array(arrayBuffer), files={};
   let eocd=-1;
   for(let i=b.length-22;i>=0;i--){if(b[i]===0x50&&b[i+1]===0x4b&&b[i+2]===0x05&&b[i+3]===0x06){eocd=i;break;}}
@@ -1057,29 +1093,32 @@ async function _unzip(arrayBuffer){
     const nameLen=_u16(b,lp+26), extraLen=_u16(b,lp+28);
     const start=lp+30+nameLen+extraLen;
     const comp=b.subarray(start,start+e.compSize);
-    files[e.name]=e.method===0?comp:await _inflateRaw(comp);
+    files[e.name]=e.method===0?comp:_inflateRawJS(comp);
   }
   return files;
 }
-function _colIdx(ref){let n=0;const m=/^([A-Z]+)/.exec(ref);if(!m)return 0;for(const ch of m[1])n=n*26+(ch.charCodeAt(0)-64);return n-1;}
+function _colIdx(l){let n=0;for(const ch of l)n=n*26+(ch.charCodeAt(0)-64);return n-1;}
+function _xmlDec(s){return String(s).replace(/&#x([0-9a-fA-F]+);/g,(_,h)=>String.fromCodePoint(parseInt(h,16)))
+  .replace(/&#(\d+);/g,(_,d)=>String.fromCodePoint(parseInt(d,10)))
+  .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,'&');}
 function _parseShared(xml){
   if(!xml)return [];
-  const doc=new DOMParser().parseFromString(xml,'application/xml');
-  return [...doc.getElementsByTagName('si')].map(si=>[...si.getElementsByTagName('t')].map(t=>t.textContent).join(''));
+  const out=[]; const re=/<si>([\s\S]*?)<\/si>/g; let m;
+  while((m=re.exec(xml))){const ts=[...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x=>_xmlDec(x[1]));out.push(ts.join(''));}
+  return out;
 }
 function _parseSheet(xml,shared){
-  const doc=new DOMParser().parseFromString(xml,'application/xml');
-  const out=[]; let maxCol=0;
-  for(const row of doc.getElementsByTagName('row')){
-    const arr=[];
-    let auto=0;
-    for(const c of row.getElementsByTagName('c')){
-      const ref=c.getAttribute('r'); const ci=ref?_colIdx(ref):auto++;
-      const t=c.getAttribute('t'); let v='';
-      const is=c.getElementsByTagName('is')[0];
-      if(t==='inlineStr'&&is)v=is.textContent||'';
-      else{const vEl=c.getElementsByTagName('v')[0]; const raw=vEl?(vEl.textContent||''):'';
-        v=(t==='s')?(shared[parseInt(raw)]||''):raw;}
+  const out=[]; let maxCol=0; const rowRe=/<row[^>]*>([\s\S]*?)<\/row>/g; let rm;
+  while((rm=rowRe.exec(xml))){
+    const arr=[]; let auto=0; const cellRe=/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g; let cm;
+    while((cm=cellRe.exec(rm[1]))){
+      const attrs=cm[1]||'', inner=cm[2]||'';
+      const rref=/r="([A-Z]+)\d+"/.exec(attrs); const ci=rref?_colIdx(rref[1]):auto++;
+      const tt=/t="([^"]+)"/.exec(attrs); const type=tt?tt[1]:'';
+      let v='';
+      if(type==='inlineStr'){const im=/<t[^>]*>([\s\S]*?)<\/t>/.exec(inner); v=im?_xmlDec(im[1]):'';}
+      else{const vm=/<v[^>]*>([\s\S]*?)<\/v>/.exec(inner); const raw=vm?vm[1]:'';
+        v=(type==='s')?(shared[parseInt(raw)]||''):_xmlDec(raw);}
       arr[ci]=v; if(ci>maxCol)maxCol=ci;
     }
     out.push(arr);
@@ -1087,7 +1126,7 @@ function _parseSheet(xml,shared){
   return out.map(r=>{const a=[];for(let i=0;i<=maxCol;i++)a[i]=r[i]!==undefined?r[i]:'';return a;});
 }
 async function readXlsxAoA(arrayBuffer){
-  const files=await _unzip(arrayBuffer); const dec=new TextDecoder();
+  const files=_unzip(arrayBuffer); const dec=new TextDecoder();
   const shared=files['xl/sharedStrings.xml']?_parseShared(dec.decode(files['xl/sharedStrings.xml'])):[];
   let key=files['xl/worksheets/sheet1.xml']?'xl/worksheets/sheet1.xml':Object.keys(files).find(k=>/^xl\/worksheets\/.+\.xml$/.test(k));
   if(!key)throw new Error('시트를 찾을 수 없습니다');
@@ -1096,6 +1135,7 @@ async function readXlsxAoA(arrayBuffer){
 window.importDeviceXlsx=async function(e){
   const file=e.target.files[0];if(!file)return;
   toast('엑셀 분석 중...');
+  let parsed=null;
   try{
     const rows=await readXlsxAoA(await file.arrayBuffer());
     let hi=-1;
@@ -1103,7 +1143,7 @@ window.importDeviceXlsx=async function(e){
       const line=rows[i].map(x=>String(x).trim());
       if(line.some(x=>x==='MAC')&&line.some(x=>/디바이스명/.test(x))){hi=i;break;}
     }
-    if(hi<0){toast('헤더(MAC/디바이스명)를 찾지 못했습니다');return;}
+    if(hi<0){toast('헤더(MAC/디바이스명)를 찾지 못했습니다');e.target.value='';return;}
     const H=rows[hi].map(x=>String(x).trim());
     const col=n=>H.findIndex(x=>x===n);
     const ci={store:col('매장'),dev:col('디바이스명'),svc:col('서비스 관리 번호'),mac:col('MAC')};
@@ -1122,15 +1162,25 @@ window.importDeviceXlsx=async function(e){
       if(!store&&code&&STORES[code])store=STORES[code];
       out.push({mac,store,dev,svc:ci.svc>=0?String(r[ci.svc]||'').trim():'',serial,code,idx});
     }
-    if(!out.length){toast('유효한 디바이스 행이 없습니다');return;}
-    DEVICES=out;buildDeviceIndex();
-    localStorage.setItem(LS_DEV,JSON.stringify(DEVICES));
-    renderDevList();renderAll();
-    if(cloud){toast('업로드 반영 중(팀 공유)...');await pushDeviceMaster(DEVICES);}
-    // 업로드한 디바이스 마스터로 기존 접수 이력의 빈 항목 자동 보강
-    const enriched=await enrichItemsFromDevices();
-    toast(out.length.toLocaleString()+'대 반영 완료'+(cloud?' · 팀 공유':' (로컬)')+(enriched?' · 접수 '+enriched+'건 정보 보강':''));
-  }catch(err){console.error(err);toast('엑셀을 읽을 수 없습니다');}
+    if(!out.length){toast('유효한 디바이스 행이 없습니다');e.target.value='';return;}
+    parsed=out;
+  }catch(err){console.error(err);toast('엑셀을 읽을 수 없습니다: '+(err&&err.message?err.message:err));e.target.value='';return;}
+  // 파싱 성공 → 우선 화면(로컬)에 반영
+  DEVICES=parsed;buildDeviceIndex();
+  localStorage.setItem(LS_DEV,JSON.stringify(DEVICES));
+  renderDevList();renderAll();
+  // 팀 공유 저장 (실패해도 화면 반영은 유지)
+  let shareMsg=cloud?'':' (로컬)';
+  if(cloud){
+    try{toast('팀 공유 저장 중...');await pushDeviceMaster(DEVICES);shareMsg=' · 팀 공유 반영';}
+    catch(err){console.error(err);
+      const perm=/permission|insufficient/i.test(err&&(err.code+' '+err.message)||'');
+      shareMsg=perm?' · ⚠️ 팀 공유 저장 실패: Firestore 권한 부족(보안 규칙 확인 필요)'
+                   :' · ⚠️ 팀 공유 저장 실패: '+(err&&err.message||err);}
+  }
+  // 기존 접수 이력 보강 (실패해도 무시)
+  let enriched=0; try{enriched=await enrichItemsFromDevices();}catch(err){console.error('보강 저장 실패',err);}
+  toast(parsed.length.toLocaleString()+'대 반영 완료'+shareMsg+(enriched?' · 접수 '+enriched+'건 보강':''));
   e.target.value='';
 }
 
@@ -1198,7 +1248,7 @@ async function handleImportFile(file){
     // 메일 작성 표가 비어 있으면 신규 건 자동 입력
     if(!document.querySelector('#bulkBody tr')&&importRows.some(r=>!r._dup&&!r._openDup))fillMailFromPreview();
     if(!importRows.length)toast('가져올 행이 없습니다');
-  }catch(err){console.error(err);toast('엑셀을 읽을 수 없습니다');}
+  }catch(err){console.error(err);toast('엑셀을 읽을 수 없습니다: '+(err&&err.message?err.message:err));}
 }
 window.handleImportInput=async function(e){const f=e.target.files[0];if(f)await handleImportFile(f);e.target.value='';}
 function renderPreview(){
@@ -1231,15 +1281,19 @@ window.commitImport=async function(){
   const neu=importRows.filter(r=>!r._dup&&!r._openDup);
   if(!neu.length){toast('등록할 신규 건이 없습니다');return;}
   toast('등록 중...');
-  let n=0;
-  for(const r of neu){
-    const it=Object.assign({},r);
-    delete it._dup;delete it._macMatched;delete it._codeOk;delete it._openDup;
-    it.id=newId();it.created=new Date().toISOString();it.source='엑셀업로드';
-    await dbPut(it);n++;
-  }
+  let n=0, failMsg='';
+  try{
+    for(const r of neu){
+      const it=Object.assign({},r);
+      delete it._dup;delete it._macMatched;delete it._codeOk;delete it._openDup;
+      it.id=newId();it.created=new Date().toISOString();it.source='엑셀업로드';
+      await dbPut(it);n++;
+    }
+  }catch(err){console.error(err);
+    const perm=/permission|insufficient/i.test(err&&(err.code+' '+err.message)||'');
+    failMsg=perm?' — ⚠️ 이후 저장 실패: Firestore 권한 부족(보안 규칙 확인)':' — ⚠️ 저장 오류: '+(err&&err.message||err);}
   importRows=[];renderPreview();$('upSummary').innerHTML='';
-  toast(n+'건 접수 등록 완료'+(cloud?' — 팀 이력에 반영됨':''));
+  toast(n+'건 접수 등록'+(failMsg||(cloud?' — 팀 이력에 반영됨':' (로컬)')));
   showTab('list');
 };
 /* ── 단체 접수요청 메일 작성 ── */
@@ -1444,6 +1498,8 @@ function dl(blob,name){
 }
 
 /* init */
+const APP_VER='v2026.07.14-c';
+$('verTag').textContent='('+APP_VER+')';
 $('fDate').value=today();
 initStorage();
 </script>
