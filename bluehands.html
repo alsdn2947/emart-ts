@@ -365,8 +365,9 @@ const chip = (s) => s?`<span class="chip" style="background:${SC[s][0]};color:${
 
 function vDash(S){
   const total = DB.stores.length, tn = S.T.length;
-  const pipe = STATUSES.filter(s=>S.st[s]).map(s=>`<div class="num" title="${s} ${S.st[s]}점" style="flex-grow:${S.st[s]};flex-basis:0;min-width:26px;background:${SC[s][2]};color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${S.st[s]}</div>`).join("");
-  const leg = STATUSES.map(s=>`<span style="font-size:11.5px;color:#4B5563;display:inline-flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:${SC[s][2]};display:inline-block"></span>${s} <b class="num">${S.st[s]||0}</b></span>`).join(" &nbsp; ");
+  const goSt = (s)=>`filt.status='${s}';filt.juris='';filt.target='';filt.q='';page=0;go('list')`;
+  const pipe = STATUSES.filter(s=>S.st[s]).map(s=>`<div class="num" title="${s} ${S.st[s]}점 — 클릭하면 목록에서 필터" onclick="${goSt(s)}" style="cursor:pointer;flex-grow:${S.st[s]};flex-basis:0;min-width:26px;background:${SC[s][2]};color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center">${S.st[s]}</div>`).join("");
+  const leg = STATUSES.map(s=>`<span title="클릭하면 목록에서 ${s}만 표시" onclick="${goSt(s)}" style="cursor:pointer;font-size:11.5px;color:#4B5563;display:inline-flex;align-items:center;gap:5px"><span style="width:9px;height:9px;border-radius:3px;background:${SC[s][2]};display:inline-block"></span>${s} <b class="num">${S.st[s]||0}</b></span>`).join(" &nbsp; ");
   const kpi = (l,v,c,click) => `<div class="card" ${click?`onclick="${click}" style="cursor:pointer;padding:13px 16px"`:`style="padding:13px 16px"`}><div style="font-size:12px;color:var(--mut);font-weight:700">${l}</div><div class="num" style="font-size:26px;font-weight:900;color:${c}">${Number(v).toLocaleString()}</div></div>`;
   const prow = (l,v,u) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #F0F2F5;font-size:13px"><span>${l}</span><span class="num"><b>${v}</b> <span style="color:var(--faint);font-size:11px">${u}</span></span></div>`;
   const months = Object.keys(S.byM).sort().slice(-8);
