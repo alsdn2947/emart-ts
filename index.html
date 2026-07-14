@@ -273,6 +273,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn primary" onclick="saveItem()">저장</button>
       <button class="btn" onclick="resetForm()">초기화</button>
+      <button class="btn" onclick="backToList()">↩ 접수 리스트로 돌아가기</button>
       <span style="flex:1"></span>
       <button class="btn dark" onclick="genMail()">📧 접수요청 메일 본문</button>
       <button class="btn dark" onclick="genKakao()">💬 카톡 간단소통 메시지</button>
@@ -402,6 +403,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
       <button class="btn primary" onclick="document.getElementById('devFile').click()">📤 디바이스 엑셀(xlsx) 업로드</button>
       <input type="file" id="devFile" accept=".xlsx,.xls" hidden onchange="importDeviceXlsx(event)">
+      <button class="btn" onclick="enrichItems()">🔄 접수 이력 정보 보강</button>
       <button class="btn" onclick="reloadBundledDevices()">기본 데이터 다시 불러오기</button>
       <span class="hint" id="devInfo"></span>
     </div>
@@ -525,6 +527,8 @@ let STORES={};                 // code -> name
 let NAME2CODE={};              // name -> code
 let DEVICES=[];                // [{mac,store,dev,svc,serial,code,idx}]
 let MAC_INDEX=new Map();       // mac -> device
+let SERIAL_INDEX=new Map();    // serial -> device
+let SVC_INDEX=new Map();       // 서비스관리번호 -> device
 const dlg=document.getElementById('dlg');
 window.dlg=dlg;
 
@@ -539,11 +543,43 @@ const normMac=s=>{const hex=String(s||'').toUpperCase().replace(/[^0-9A-F]/g,'')
 
 /* ── 마스터 인덱스 구축 ── */
 function buildDeviceIndex(){
-  MAC_INDEX=new Map();
-  DEVICES.forEach(d=>{if(d.mac)MAC_INDEX.set(d.mac,d)});
+  MAC_INDEX=new Map();SERIAL_INDEX=new Map();SVC_INDEX=new Map();
+  DEVICES.forEach(d=>{
+    if(d.mac)MAC_INDEX.set(d.mac,d);
+    if(d.serial)SERIAL_INDEX.set(d.serial,d);
+    if(d.svc)SVC_INDEX.set(String(d.svc).trim(),d);
+  });
   $('devBadge').textContent='디바이스 '+DEVICES.length.toLocaleString()+'대';
   $('devInfo').textContent='현재 '+DEVICES.length.toLocaleString()+'대 로딩됨';
   $('devMode').textContent=cloud?'팀 공유':'로컬';
+}
+// 접수 건 → 디바이스 마스터 매칭 (MAC → 시리얼 → 서비스번호 순)
+function findDeviceFor(it){
+  if(it.mac&&MAC_INDEX.has(it.mac))return MAC_INDEX.get(it.mac);
+  if(it.serial&&SERIAL_INDEX.has(it.serial))return SERIAL_INDEX.get(it.serial);
+  if(it.svc&&SVC_INDEX.has(String(it.svc).trim()))return SVC_INDEX.get(String(it.svc).trim());
+  return null;
+}
+// 디바이스 마스터로 접수 이력의 빈 항목(MAC/서비스번호/시리얼/디바이스명/점포 등) 자동 보강
+async function enrichItemsFromDevices(){
+  const changed=[];
+  for(const it of items){
+    const d=findDeviceFor(it); if(!d)continue;
+    const patch={}; let ch=false;
+    ['mac','svc','serial','code','idx','dev','store'].forEach(k=>{
+      if(d[k]&&!String(it[k]||'').trim()){patch[k]=d[k];ch=true;}
+    });
+    if(patch.mac&&!String(it.macRaw||'').trim()){patch.macRaw=d.mac;ch=true;}
+    if(ch)changed.push(Object.assign({},it,patch));
+  }
+  for(const it of changed)await dbPut(it);
+  return changed.length;
+}
+window.enrichItems=async function(){
+  if(!DEVICES.length){toast('먼저 디바이스 엑셀을 업로드하세요');return;}
+  toast('접수 이력 보강 중...');
+  const n=await enrichItemsFromDevices();
+  toast(n?(n+'건의 접수 정보가 보강되었습니다'+(cloud?' — 팀 공유 반영':'')):'보강할 빈 항목이 없습니다');
 }
 function buildStoreIndex(){
   NAME2CODE={};
@@ -826,6 +862,11 @@ window.editItem=function(id){
   pendingPhotos=(it.photos||[]).map(p=>({...p,dataUrl:''}));removedPhotoPaths=[];renderPhotoPreview();
   onMacInput();validateStore();showTab('reg');window.scrollTo({top:0});
 }
+window.backToList=function(){
+  const wasEditing=!!editId;
+  resetForm();showTab('list');
+  if(wasEditing)toast('수정을 취소하고 목록으로 돌아왔습니다');
+}
 window.delItem=async function(id){
   if(!confirm('이 접수 건을 삭제할까요?'+(cloud?' (팀 공유 데이터와 사진도 삭제됩니다)':'')))return;
   const it=items.find(x=>x.id===id);
@@ -1029,8 +1070,10 @@ window.importDeviceXlsx=async function(e){
     DEVICES=out;buildDeviceIndex();
     localStorage.setItem(LS_DEV,JSON.stringify(DEVICES));
     renderDevList();renderAll();
-    if(cloud){toast('업로드 반영 중(팀 공유)...');await pushDeviceMaster(DEVICES);toast(out.length.toLocaleString()+'대 반영 완료 — 팀 전체 공유됨');}
-    else toast(out.length.toLocaleString()+'대 반영 완료 (로컬)');
+    if(cloud){toast('업로드 반영 중(팀 공유)...');await pushDeviceMaster(DEVICES);}
+    // 업로드한 디바이스 마스터로 기존 접수 이력의 빈 항목 자동 보강
+    const enriched=await enrichItemsFromDevices();
+    toast(out.length.toLocaleString()+'대 반영 완료'+(cloud?' · 팀 공유':' (로컬)')+(enriched?' · 접수 '+enriched+'건 정보 보강':''));
   }catch(err){console.error(err);toast('엑셀을 읽을 수 없습니다');}
   e.target.value='';
 }
