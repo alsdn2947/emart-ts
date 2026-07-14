@@ -1024,27 +1024,83 @@ window.renderDevList=function(){
 }
 function renderAll(){renderDash();renderList();renderDup();renderStoreList();}
 
-/* ── 디바이스 엑셀 업로드 (SheetJS) ── */
-let XLSXlib=null;
-async function ensureXLSX(){
-  if(XLSXlib)return XLSXlib;
-  await new Promise((res,rej)=>{const s=document.createElement('script');
-    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    s.onload=res;s.onerror=rej;document.head.appendChild(s);});
-  XLSXlib=window.XLSX;return XLSXlib;
+/* ── 자체 내장 xlsx 리더 (외부 라이브러리·CDN 불필요, 사내망에서도 동작) ──
+   · ZIP을 직접 풀고(브라우저 내장 DecompressionStream), 시트 XML을 파싱
+   · CMS 엑셀의 잘못된 dimension(A1) 값을 무시하고 실제 셀 범위로 읽음        */
+const _u16=(b,o)=>b[o]|(b[o+1]<<8);
+const _u32=(b,o)=>(b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0;
+async function _inflateRaw(bytes){
+  if(typeof DecompressionStream==='undefined')throw new Error('이 브라우저는 지원되지 않습니다(최신 크롬/엣지 권장)');
+  const s=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+async function _unzip(arrayBuffer){
+  const b=new Uint8Array(arrayBuffer), files={};
+  let eocd=-1;
+  for(let i=b.length-22;i>=0;i--){if(b[i]===0x50&&b[i+1]===0x4b&&b[i+2]===0x05&&b[i+3]===0x06){eocd=i;break;}}
+  if(eocd<0)throw new Error('올바른 xlsx(zip) 파일이 아닙니다');
+  let p=_u32(b,eocd+16); const cnt=_u16(b,eocd+10);
+  const entries=[];
+  for(let n=0;n<cnt;n++){
+    if(_u32(b,p)!==0x02014b50)break;
+    const method=_u16(b,p+10), compSize=_u32(b,p+20);
+    const nameLen=_u16(b,p+28), extraLen=_u16(b,p+30), commentLen=_u16(b,p+32);
+    const localOff=_u32(b,p+42);
+    const name=new TextDecoder().decode(b.subarray(p+46,p+46+nameLen));
+    entries.push({name,method,compSize,localOff});
+    p+=46+nameLen+extraLen+commentLen;
+  }
+  for(const e of entries){
+    if(!/^xl\/(worksheets\/|sharedStrings)/.test(e.name))continue;
+    let lp=e.localOff;
+    if(_u32(b,lp)!==0x04034b50)continue;
+    const nameLen=_u16(b,lp+26), extraLen=_u16(b,lp+28);
+    const start=lp+30+nameLen+extraLen;
+    const comp=b.subarray(start,start+e.compSize);
+    files[e.name]=e.method===0?comp:await _inflateRaw(comp);
+  }
+  return files;
+}
+function _colIdx(ref){let n=0;const m=/^([A-Z]+)/.exec(ref);if(!m)return 0;for(const ch of m[1])n=n*26+(ch.charCodeAt(0)-64);return n-1;}
+function _parseShared(xml){
+  if(!xml)return [];
+  const doc=new DOMParser().parseFromString(xml,'application/xml');
+  return [...doc.getElementsByTagName('si')].map(si=>[...si.getElementsByTagName('t')].map(t=>t.textContent).join(''));
+}
+function _parseSheet(xml,shared){
+  const doc=new DOMParser().parseFromString(xml,'application/xml');
+  const out=[]; let maxCol=0;
+  for(const row of doc.getElementsByTagName('row')){
+    const arr=[];
+    let auto=0;
+    for(const c of row.getElementsByTagName('c')){
+      const ref=c.getAttribute('r'); const ci=ref?_colIdx(ref):auto++;
+      const t=c.getAttribute('t'); let v='';
+      const is=c.getElementsByTagName('is')[0];
+      if(t==='inlineStr'&&is)v=is.textContent||'';
+      else{const vEl=c.getElementsByTagName('v')[0]; const raw=vEl?(vEl.textContent||''):'';
+        v=(t==='s')?(shared[parseInt(raw)]||''):raw;}
+      arr[ci]=v; if(ci>maxCol)maxCol=ci;
+    }
+    out.push(arr);
+  }
+  return out.map(r=>{const a=[];for(let i=0;i<=maxCol;i++)a[i]=r[i]!==undefined?r[i]:'';return a;});
+}
+async function readXlsxAoA(arrayBuffer){
+  const files=await _unzip(arrayBuffer); const dec=new TextDecoder();
+  const shared=files['xl/sharedStrings.xml']?_parseShared(dec.decode(files['xl/sharedStrings.xml'])):[];
+  let key=files['xl/worksheets/sheet1.xml']?'xl/worksheets/sheet1.xml':Object.keys(files).find(k=>/^xl\/worksheets\/.+\.xml$/.test(k));
+  if(!key)throw new Error('시트를 찾을 수 없습니다');
+  return _parseSheet(dec.decode(files[key]),shared);
 }
 window.importDeviceXlsx=async function(e){
   const file=e.target.files[0];if(!file)return;
   toast('엑셀 분석 중...');
   try{
-    const XLSX=await ensureXLSX();
-    const buf=await file.arrayBuffer();
-    const wb=XLSX.read(buf,{type:'array'});
-    const ws=wb.Sheets[wb.SheetNames[0]];
-    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    const rows=await readXlsxAoA(await file.arrayBuffer());
     let hi=-1;
     for(let i=0;i<Math.min(rows.length,30);i++){
-      const line=rows[i].map(x=>String(x));
+      const line=rows[i].map(x=>String(x).trim());
       if(line.some(x=>x==='MAC')&&line.some(x=>/디바이스명/.test(x))){hi=i;break;}
     }
     if(hi<0){toast('헤더(MAC/디바이스명)를 찾지 못했습니다');return;}
@@ -1083,6 +1139,10 @@ let importRows=[];
 function normDate(s){s=String(s||'').trim();
   const m=s.match(/(\d{4})[.\-\/]\s?(\d{1,2})[.\-\/]\s?(\d{1,2})/);
   if(m)return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+  // 엑셀 날짜 일련번호(예: 46000) → 날짜 변환
+  if(/^\d{4,5}(\.\d+)?$/.test(s)){const n=Math.floor(parseFloat(s));
+    if(n>20000&&n<80000){const d=new Date(Date.UTC(1899,11,30)+n*86400000);
+      return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');}}
   return s.slice(0,10);}
 function parseSerial(d){const m=String(d||'').match(/(\d{7})$/);return (m&&m[1]!=='1111111')?m[1]:'';}
 function extractStore(d){d=String(d||'').trim();
@@ -1093,10 +1153,7 @@ function extractStore(d){d=String(d||'').trim();
   return m?m[1]:'';}
 function dedupKey(it){return (it.date||'')+'|'+(it.mac||'')+'|'+(it.deviceInfo||it.store||'');}
 async function parseFaultFile(file){
-  const XLSX=await ensureXLSX();
-  const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
-  const ws=wb.Sheets[wb.SheetNames[0]];
-  const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false});
+  const rows=await readXlsxAoA(await file.arrayBuffer());
   let hi=-1;
   for(let i=0;i<Math.min(rows.length,15);i++){
     const line=rows[i].map(x=>String(x).toLowerCase());
